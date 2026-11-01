@@ -204,4 +204,31 @@ describe('input, endpoint and media validation', () => {
     expect(() => moveScene(state, state.scenes[0].id, 1)).toThrow('locks');
     expect(() => deleteScene(state, state.scenes[0].id)).toThrow('locks');
   });
+  it.each([
+    ['00:00.200 --> 00:01.200', 0.2, 1.2],
+    ['00:00:00.200 --> 00:00:01.200', 0.2, 1.2],
+    ['00:00.200 --> 00:00:01.200', 0.2, 1.2],
+    ['  00:00.200\t-->\t00:01.200\talign:start  ', 0.2, 1.2],
+    ['01:00:00.200 --> 01:00:01.200', 3600.2, 3601.2],
+    ['100:00:00.200 --> 100:00:01.200', 360000.2, 360001.2],
+  ])('parses valid WebVTT cue timing %s', (timing, start, end) => {
+    expect(parseServiceVtt(`WEBVTT\r\n\r\n1\r\n${timing}\r\nHello.\r\n`, end + 1))
+      .toEqual([{ start, end, text: 'Hello.' }]);
+  });
+  it.each(['60:00.000', '00:60.000', '00:60:00.000', '00:00:60.000', '0:01.000',
+    '00:01.00', '00:01,000', '-00:01.000', '00:01.000extra'])('rejects invalid WebVTT timestamp %s', timestamp => {
+    expect(() => parseServiceVtt(`WEBVTT\n\n00:00.000 --> ${timestamp}\nHello.\n`, 4000))
+      .toThrow('Invalid subtitle timestamp.');
+  });
+  it('preserves actual short-form service timings and scene offsets without accepting invalid cue bounds', () => {
+    const cues = parseServiceVtt('WEBVTT\n\n00:00.200 --> 00:01.200\nHello.\n', 2);
+    const vtt = webVtt([{ text: 'Hello.', duration: 2, cues }, { text: 'Hello.', duration: 2, cues }]);
+    expect(vtt).toContain('00:00:02.200 --> 00:00:03.200');
+    expect(vtt).not.toContain('Approximate timing');
+    for (const timing of ['00:00.200 --> 00:00.200', '00:01.200 --> 00:00.200', '00:00.000 --> 00:02.001']) {
+      expect(() => parseServiceVtt(`WEBVTT\n\n${timing}\nHello.\n`, 2)).toThrow('Transcript cues');
+    }
+    expect(() => parseServiceVtt('WEBVTT\n\n00:00.000 --> 00:01.000\nFirst.\n\n00:00.900 --> 00:01.500\nSecond.\n', 2))
+      .toThrow('Transcript cues');
+  });
 });

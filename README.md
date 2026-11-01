@@ -47,6 +47,8 @@ SSML is parsed, subset-validated and single-voice; the toolbar voice is authorit
 
 Embedded avatar subtitle timing is preferred when returned. Otherwise phrase cues are distributed proportionally over measured scene duration, offset by actual preceding durations, escaped and validated for positive/nonoverlapping bounds. Approximate scenes are identified in a `WEBVTT NOTE` and beside downloads. Final playback includes the VTT track.
 
+Embedded subtitles extracted by FFmpeg accept both valid WebVTT timestamp forms (`MM:SS.mmm` and `HH:MM:SS.mmm`). Original cue timing is retained; malformed timestamps, overlapping cues and cues outside the measured video duration still fail explicitly.
+
 ## Validation versus release qualification
 
 Local unit and Chrome/Edge browser tests cover contracts, research mocks/SSE/continuity, storage/privacy, safe markup, scene editing, production locks/cancellation, real browser codecs/media/alpha, compiled assets, isolation startup/fallback and a genuinely CORS-denied loopback fixture.

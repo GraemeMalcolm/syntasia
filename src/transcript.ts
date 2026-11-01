@@ -41,17 +41,17 @@ export function parseServiceVtt(text: string, duration: number): Cue[] {
   if (!text.replace(/^\uFEFF/, '').startsWith('WEBVTT')) throw new Error('Invalid service WebVTT.');
   const cues: Cue[] = [];
   const seconds = (value: string) => {
-    const match = /^(\d{2,}):(\d{2}):(\d{2})\.(\d{3})$/.exec(value);
+    const match = /^(?:(\d{2,}):)?(\d{2}):(\d{2})\.(\d{3})$/.exec(value);
     if (!match || Number(match[2]) > 59 || Number(match[3]) > 59) throw new Error('Invalid subtitle timestamp.');
-    return Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]) + Number(match[4]) / 1000;
+    return Number(match[1] ?? 0) * 3600 + Number(match[2]) * 60 + Number(match[3]) + Number(match[4]) / 1000;
   };
   for (const block of text.replace(/\r\n/g, '\n').split(/\n\n+/)) {
     const lines = block.split('\n');
-    const timing = lines.findIndex(line => line.includes(' --> '));
+    const timing = lines.findIndex(line => /[ \t]+-->[ \t]+/.test(line));
     if (timing < 0) continue;
-    const [start, end] = lines[timing].split(' --> ');
+    const [start, end] = lines[timing].trim().split(/[ \t]+-->[ \t]+/);
     const content = lines.slice(timing + 1).join('\n').replace(/<[^>]+>/g, '').trim();
-    cues.push({ start: seconds(start), end: seconds(end.split(' ')[0]), text: content });
+    cues.push({ start: seconds(start), end: seconds(end.split(/[ \t]+/)[0]), text: content });
   }
   return validateCues(cues, duration);
 }
