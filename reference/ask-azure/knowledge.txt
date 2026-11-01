@@ -1,0 +1,430 @@
+AI SKILLS NAVIGATOR KNOWLEDGE BASE
+
+Purpose: Concise reference material about artificial intelligence concepts, Microsoft Foundry, and Microsoft AI credentials. Each topic includes search terms and, where available, links to related learning and video resources.
+
+CATEGORY: AI Overview
+CATEGORY LEARNING RESOURCE: https://aka.ms/aisn-ai-concepts-mod
+
+TOPIC 1: What is Artificial Intelligence?
+SEARCH TERMS: artificial intelligence, explain ai, define ai, cognitive computing
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/4512c9aa-12b9-4cd5-a77b-612a9202d253
+ANSWER:
+Artificial Intelligence (AI) enables machines to simulate human thinking and problem-solving. It is built on machine learning and spans sub-areas such as generative AI, text analysis, speech, computer vision, and information extraction.
+
+------------------------------------------------------------------------
+
+TOPIC 2: Responsible AI
+SEARCH TERMS: responsible ai, ethics, ethical, safety, fairness, fair, transparency, accountability, privacy, bias, guardrails, content filters
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/d170e076-b913-424c-a0a0-44a47c0d7ceb
+ANSWER:
+Responsible AI means building AI that is ethical, transparent, and accountable. Microsoft's principles cover fairness, reliability and safety, privacy and security, inclusiveness, transparency, and accountability.
+
+------------------------------------------------------------------------
+
+CATEGORY: Machine Learning
+CATEGORY LEARNING RESOURCE: https://aka.ms/aisn-ml-concepts-mod
+
+TOPIC 3: Introduction to Machine Learning
+SEARCH TERMS: machine learning, ml, predictive model, predictive models, predictive modeling, supervised learning, unsupervised learning, features, label
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/12719512-1cb0-430c-b09e-2798d6989012
+ANSWER:
+Machine Learning is a subset of AI where computers learn from data to make predictions without explicit programming. Models learn from inputs called features to predict outputs called labels. The main approaches are supervised learning (using labeled examples) and unsupervised learning (finding patterns without labels).
+
+------------------------------------------------------------------------
+
+TOPIC 4: Regression
+SEARCH TERMS: regression, regressor, regressors, linear regression
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/951d39cc-8866-41ad-8780-819dab65488f
+ANSWER:
+Regression is a supervised learning technique for predicting continuous numerical values, such as house prices or sales figures. Linear regression assumes a straight-line relationship between inputs and output; more complex techniques capture non-linear patterns.
+
+------------------------------------------------------------------------
+
+TOPIC 5: Classification
+SEARCH TERMS: classification, classifier, classifiers, binary classification, multiclass classification, logistic regression
+ANSWER:
+Classification is a supervised learning technique that assigns items to predefined categories. Binary classification predicts one of two outcomes (e.g. spam or not); multiclass classification predicts one of three or more categories. Models learn from labeled data and calculate the probability for each class.
+
+------------------------------------------------------------------------
+
+TOPIC 6: Clustering
+SEARCH TERMS: clustering, cluster, clusters, k-means
+ANSWER:
+Clustering is an unsupervised learning technique that groups similar items by shared features without labeled data. For example, grouping customers by purchasing behavior. Common algorithms include K-means, used in market research and anomaly detection.
+
+------------------------------------------------------------------------
+
+TOPIC 7: Deep Learning and Neural Networks
+SEARCH TERMS: deep learning, neural network, artificial neural network, fully connected network, multi layer perceptron
+ANSWER:
+Deep learning uses neural networks with many layers to recognize complex patterns. Networks adjust connection strengths during training to minimize errors. It powers image recognition, speech processing, natural language understanding, and large language models.
+
+------------------------------------------------------------------------
+
+CATEGORY: Generative AI and Agents
+CATEGORY LEARNING RESOURCE: https://aka.ms/aisn-gen-ai-concepts-mod
+
+TOPIC 8: Introduction to Generative AI
+SEARCH TERMS: generative ai, genai, prompt, prompts, prompt engineering
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/904e700e-4549-42ac-8056-7e4dfd505966
+ANSWER:
+Generative AI models produce new content such as text, images, audio, or video from patterns learned during training. Most are large language models built on transformer architectures. Users provide natural language prompts, and prompt engineering is the practice of crafting effective prompts to guide the output.
+
+------------------------------------------------------------------------
+
+TOPIC 9: Large Language Models
+SEARCH TERMS: large language model, large language models, llm, llms, gpt
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/298e27ef-f5b0-4ed7-ade5-623d8465105a
+ANSWER:
+Large Language Models (LLMs) understand and generate human language at scale using transformer architectures. They break text into tokens, convert them to embeddings, and use attention to understand relationships. LLMs perform tasks like writing, translation, summarization, and question answering without task-specific retraining.
+
+------------------------------------------------------------------------
+
+TOPIC 10: AI Agents
+SEARCH TERMS: agents, agent, agentic
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/17ea5149-8d84-4d51-8c46-e1a86d21815f
+ANSWER:
+AI agents perform tasks on behalf of users. They combine a large language model, behavioral instructions, and tools connected to external systems.
+
+------------------------------------------------------------------------
+
+TOPIC 11: Transformer models and Attention
+SEARCH TERMS: transformer, transformers, attention, self-attention, multi-head attention, encoder, decoder, encoder-decoder, embedding, embeddings, vectors, vector, tokens, token
+ANSWER:
+Transformers underpin most modern AI systems. They map input tokens to embedding vectors and use self-attention to capture relationships between tokens. Encoders process input and decoders generate output; multi-head attention allows the model to consider multiple relationship types at once.
+
+------------------------------------------------------------------------
+
+TOPIC 12: Prompt Engineering
+SEARCH TERMS: prompt engineering, prompt, prompts, instruction, instructions, few shot learning, zero shot learning
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/2330092e-48b9-4d41-905b-e1b4fd002356
+ANSWER:
+Prompt engineering is crafting inputs to guide AI models toward accurate responses. Techniques include clear instructions, context, and worked examples. Few-shot prompting includes examples in the prompt; zero-shot relies on the model's existing knowledge.
+
+------------------------------------------------------------------------
+
+TOPIC 13: Fine-tuning and Custom Models
+SEARCH TERMS: fine tuning, fine-tune, custom model, custom models, transfer learning
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/4955a5e7-d701-469a-a845-93bb0b070003
+ANSWER:
+Fine-tuning adapts a pre-trained AI model to a specific task or domain. It requires far less data than training from scratch and tailors the model to specific terminology or workflows, producing a custom model.
+
+------------------------------------------------------------------------
+
+TOPIC 14: Evaluation of Generative AI Models
+SEARCH TERMS: evaluation, evaluate, model evaluation, generative ai evaluation, accuracy, coherence, relevance, diversity
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/e24b97c9-21ac-4465-bf20-ec0a35e55ed7
+ANSWER:
+Evaluating generative AI ensures outputs meet quality standards. Key dimensions are accuracy (match to expected results), coherence (logical flow), relevance (addresses the prompt), and diversity (variety of outputs). Evaluation combines automated scoring with human review.
+
+------------------------------------------------------------------------
+
+TOPIC 15: Retrieval-Augmented Generation (RAG)
+SEARCH TERMS: retrieval augmented generation, rag, knowledge retrieval, external knowledge, contextual information
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/1101153e-8d13-4c60-bf09-d44eafc02c27
+ANSWER:
+Retrieval-Augmented Generation combines a generative AI model with external knowledge retrieval. Relevant documents are retrieved at query time and added to the prompt. This improves accuracy when answers depend on current or domain-specific information.
+
+------------------------------------------------------------------------
+
+TOPIC 16: Tools and Skills
+SEARCH TERMS: tools, tool, skills, skill
+ANSWER:
+AI agents use tools and skills to extend their capabilities. Tools are external connections to systems and data sources; skills are instructions that guide the agent on how to use those tools to achieve specific goals.
+
+------------------------------------------------------------------------
+
+TOPIC 17: Model Context Protocol (MCP)
+SEARCH TERMS: model context protocol, mcp
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/6285aa6e-5787-4375-914a-ab4e1f54a400
+ANSWER:
+The Model Context Protocol (MCP) is a standard interface allowing AI agents to discover and connect to external tools without custom integration code. Agents that support MCP can automatically use any compatible tool, making it easier to build agents that take real-world actions.
+
+------------------------------------------------------------------------
+
+CATEGORY: Text Analysis
+CATEGORY LEARNING RESOURCE: https://aka.ms/aisn-nlp-concepts-mod
+
+TOPIC 18: Common Text Analysis Techniques
+SEARCH TERMS: text analysis, text analytics, analyze text, term frequency, tf-idf, tfidf, stemming, lemmatization, parts of speech, pos tagging, tokenization
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/0ce04283-6436-44f0-9838-1a9b293e5ed1
+ANSWER:
+Text analysis extracts meaning from text. Term Frequency counts word occurrences; TF-IDF also weighs word rarity to highlight distinctive terms. Stemming and lemmatization reduce words to their root form, and parts-of-speech tagging labels each word by grammatical type.
+
+------------------------------------------------------------------------
+
+TOPIC 19: Natural Language Processing
+SEARCH TERMS: natural language processing, nlp
+ANSWER:
+Natural Language Processing (NLP) enables machines to understand and generate human language. It includes large language models and is applied in keyword extraction, sentiment analysis, and summarization.
+
+------------------------------------------------------------------------
+
+TOPIC 20: Text Summarization
+SEARCH TERMS: text summarization, summarization, extractive summarization, abstractive summarization, textrank, summary
+ANSWER:
+Text summarization generates a concise summary of a longer document. Extractive summarization selects key sentences unchanged, using algorithms like TextRank to rank them. Abstractive summarization, powered by large language models, generates new paraphrased sentences.
+
+------------------------------------------------------------------------
+
+TOPIC 21: Key Term Extraction
+SEARCH TERMS: key term extraction, key phrase extraction, keyword extraction, term extraction, important terms
+ANSWER:
+Key term extraction identifies the most important words and phrases in a document, surfacing main topics for indexing, search, and categorization. Common approaches combine TF-IDF with noun phrase detection.
+
+------------------------------------------------------------------------
+
+TOPIC 22: Text Classification
+SEARCH TERMS: text classification, classify text, text categorization, sentiment analysis, sentiment, analyze sentiment, predict sentiment, opinion mining, document classification
+ANSWER:
+Text classification assigns labels to documents using supervised learning, with applications like spam detection and topic categorization. Sentiment analysis identifies whether text expresses a positive, negative, or neutral opinion.
+
+------------------------------------------------------------------------
+
+CATEGORY: Speech
+CATEGORY LEARNING RESOURCE: https://aka.ms/aisn-speech-concepts-mod
+
+TOPIC 23: Overview of Speech
+SEARCH TERMS: speech, voice, audio, speak, speaking, talk, talking
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/882f1af7-944c-4be0-97c3-889dd985df68
+ANSWER:
+Speech technologies enable computers to understand and generate human speech. The two main tasks are Speech Recognition (speech to text) and Speech Synthesis (text to speech). Use cases include voice assistants like Microsoft Copilot, transcription services, accessibility tools, and language translation.
+
+------------------------------------------------------------------------
+
+TOPIC 24: Speech Recognition (Speech to Text)
+SEARCH TERMS: speech to text, speech-to-text, speech recognition, stt, mfcc, mfccs, mel frequency cepstral coefficients, phoneme, phonemes, acoustic model, language model, word prediction
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/cb7fbb9d-e62b-455e-9fa6-b6ac79ed3cf1
+ANSWER:
+Speech recognition converts spoken language to written text. An acoustic model identifies phonemes from audio; a language model predicts the most likely word sequence. Modern systems use deep learning for high accuracy across speakers, accents, and recording conditions.
+
+------------------------------------------------------------------------
+
+TOPIC 25: Speech Synthesis (Text to Speech)
+SEARCH TERMS: tts, text to speech, text-to-speech, speech synthesis, voice generation, grapheme, graphemes, prosody, intonation, pitch, vocoder
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/a83e3e97-a8ad-4368-9fa1-b7aef21f4e7c
+ANSWER:
+Speech synthesis (text-to-speech) converts written text into spoken audio. It maps characters to speech sounds and applies prosody rules for natural rhythm, pitch, and emphasis. A neural vocoder generates the final audio waveform, and modern systems use deep learning to produce natural-sounding voices.
+
+------------------------------------------------------------------------
+
+CATEGORY: Computer Vision
+CATEGORY LEARNING RESOURCE: https://aka.ms/aisn-vision-concepts-mod
+
+TOPIC 26: Computer Vision Overview
+SEARCH TERMS: computer vision, vision, image classification, object detection, semantic segmentation, visual recognition, image analysis, photo, photograph, picture, camera
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/4258ffd7-61d5-4cc2-992b-7cf059a32c0a
+ANSWER:
+Computer vision enables computers to interpret images and videos. Common tasks include image classification, object detection, and semantic segmentation. Main model types are CNNs and vision transformers, applied in autonomous vehicles, medical imaging, and facial recognition.
+
+------------------------------------------------------------------------
+
+TOPIC 27: Image Processing
+SEARCH TERMS: image processing, pixel, pixels, resolution, filter, filters, convolution, edge detection
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/a2224506-2db8-4fbe-b1c9-1af29fc7b16d
+ANSWER:
+Image processing analyzes and manipulates digital images made of pixels. Filters detect features or reduce noise â€” edge detection highlights boundaries, blur filters smooth images. Convolution slides a small kernel matrix across the image to produce a transformed output.
+
+------------------------------------------------------------------------
+
+TOPIC 28: Convolutional Neural Networks
+SEARCH TERMS: convolutional neural network, convolutional neural networks, cnn, cnns, feature extraction layers, pooling layers, fully connected layers, kernel
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/2fae02ed-55bc-44df-b37f-f7ce2373fe73
+ANSWER:
+Convolutional Neural Networks (CNNs) are deep learning models for image processing. Convolutional layers detect edges and shapes, pooling layers reduce spatial dimensions, and fully connected layers make final predictions such as image classification.
+
+------------------------------------------------------------------------
+
+TOPIC 29: Vision Transformers
+SEARCH TERMS: visual transformer, visual transformers, vision transformer, vision transformers, image transformer, image transformers, vit, vits, multimodal models, patch, patches, crossmodel attention, shared vector space, image captioning
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/9157a9d9-290b-4a2a-99c4-a28eab3369ad
+ANSWER:
+Vision Transformers apply the transformer architecture to images for tasks like classification and captioning. Images are split into fixed-size patches, each converted to an embedding vector, with self-attention capturing relationships across patches. Multimodal models extend this by sharing an embedding space between images and text.
+
+------------------------------------------------------------------------
+
+TOPIC 30: Image Generation
+SEARCH TERMS: image generation, diffusion, diffusion model, video generation, generative model, denoising, image creation, text to image, text-to-image, video creation, dalle, dall-e, sora, mai-image, maiimage
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/5fcc62e3-0757-4eea-a995-c57b3f89ea3b
+ANSWER:
+Image generation uses AI to create images from text prompts. Diffusion models progressively refine random noise into a coherent image. This powers systems like DALL-E and Stable Diffusion, and has been extended to video generation.
+
+------------------------------------------------------------------------
+
+CATEGORY: Information Extraction
+CATEGORY LEARNING RESOURCE: https://aka.ms/aisn-info-extract-concepts-mod
+
+TOPIC 31: Overview of Information Extraction
+SEARCH TERMS: information extraction, document processing, document intelligence, content understanding, document, documents, forms, invoice processing, receipt processing, form processing
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/a9cbad65-a964-47fe-8bfc-fcb12257fd29
+ANSWER:
+Information extraction pulls structured data from unstructured documents. The workflow uses OCR to read text, field extraction to identify data points, and normalization into a consistent format. It automates document-heavy workflows in finance, healthcare, and legal services.
+
+------------------------------------------------------------------------
+
+TOPIC 32: Optical Character Recognition (OCR)
+SEARCH TERMS: optical character recognition, ocr, text detection, text extraction, character recognition, text region
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/1c411668-84d6-494f-9d17-1090705e549f
+ANSWER:
+Optical character recognition (OCR) identifies text in images. It converts images into digital text by detecting text regions and recognizing characters. Modern OCR uses deep learning to handle handwritten text, low-quality scans, skewed pages, and complex layouts. It is foundational for digitizing printed documents.
+
+------------------------------------------------------------------------
+
+TOPIC 33: Field Extraction and Mapping
+SEARCH TERMS: field mapping, data extraction, key-value
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/f09417e1-0a82-4667-a7f5-0081f21d6a77
+ANSWER:
+Field extraction identifies specific data values in documents. Field mapping links extracted values to target database fields. Normalization converts values to consistent formats for use in downstream systems.
+
+------------------------------------------------------------------------
+
+CATEGORY: Microsoft Foundry
+CATEGORY LEARNING RESOURCE: https://aka.ms/aisn-intro-ai-azure-lp
+
+TOPIC 34: Microsoft Foundry
+SEARCH TERMS: foundry, azure
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/ba14d7e5-71c8-4be0-8895-15db1d726756
+ANSWER:
+Microsoft Foundry is a comprehensive platform designed to accelerate the development, deployment, and management of AI apps and agents on Microsoft Azure. It provides tools and services that you can use to deploy and manage models, build agents with capabilities like speech and vision, and evaluate AI solutions.
+
+------------------------------------------------------------------------
+
+TOPIC 35: Foundry Tools
+SEARCH TERMS: foundry tools, azure ai services, cognitive services
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/d4d80d65-8863-4184-a738-c5814802a1e7
+ANSWER:
+Microsoft Foundry Tools includes pre-built AI models for common capabilities. These include Azure Language for NLP, Azure Speech for voice tasks, Azure Translator for translation, and Azure Content Understanding for extracting insights from documents, images, audio, and video.
+
+------------------------------------------------------------------------
+
+TOPIC 36: Foundry Models
+SEARCH TERMS: foundry models, model catalog
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/916a346d-d084-48ae-8db7-2544f1200a9d
+ANSWER:
+Foundry Models is a model catalog offering a broad selection of AI models. It includes models from Microsoft, OpenAI, Anthropic, and other providers, spanning language, vision, and specialized tasks.
+
+------------------------------------------------------------------------
+
+TOPIC 37: Foundry Agent Development
+SEARCH TERMS: foundry agent, foundry agents, agent framework, agent service, build an agent, develop an agent, create an agent, build agents, develop agents, create agents
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/1fbe6d33-f5bf-4803-8809-3a8eb518573c
+ANSWER:
+Foundry supports building AI agents powered by large language models. Agents can be created using the Foundry Agent Service or an SDK such as the Microsoft Agent Framework, then hosted in Foundry. Connect your agent to tools and knowledge sources to enable it to perform tasks.
+
+------------------------------------------------------------------------
+
+TOPIC 38: Foundry SDKs and APIs
+SEARCH TERMS: sdk, sdks, api, apis, responses, chatcompletions, azureprojects
+ANSWER:
+Foundry SDKs and APIs enable programmatic access to AI models, agents, and tools. The Foundry SDK gives access to projects and agents; the OpenAI ChatCompletions and Responses APIs enable conversational interactions with large language models; the Microsoft Agent Framework SDK provides an API for building agents. Foundry Tools SDKs enable integration with services like speech, language, translation, and content understanding.
+
+------------------------------------------------------------------------
+
+TOPIC 39: Foundry Toolkit for Visual Studio Code
+SEARCH TERMS: foundry toolkit, visual studio code, vs code, visual studio, ai toolkit, vs code extension, visual studio extension, visual studio code extension
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/e4dd3172-8749-40d1-a009-d4c521424dc7
+ANSWER:
+The Foundry Toolkit for Visual Studio Code lets developers build AI apps and agents on Microsoft Foundry. It integrates with the Foundry SDK for programmatic access to projects, agents, and other Foundry resources.
+
+------------------------------------------------------------------------
+
+TOPIC 40: Foundry IQ
+SEARCH TERMS: foundry iq, foundryiq, knowledge source, knowledge sources, knowledge retrieval, knowledge store, knowledge stores, knowledge base, knowledge bases, azure ai search
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/0ee9925f-e4ee-4009-92ed-d0d0549565ed
+ANSWER:
+Foundry IQ is a managed knowledge layer that agents can use to access enterprise data. With Foundry IQ, you create a knowledge base that connects to one or more knowledge sources. Foundry IQ is built on Azure AI Search's agentic retrieval capabilities.
+
+------------------------------------------------------------------------
+
+TOPIC 41: Work IQ
+SEARCH TERMS: work iq, workiq, microsoft 365, m365
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/e521afb9-a673-41b7-a489-d4834912d69c
+ANSWER:
+Work IQ is a managed knowledge layer that agents can use to access information in documents, email, and other corporate sources. With Work IQ, you can integrate information from Microsoft 365 into your agent.
+
+------------------------------------------------------------------------
+
+TOPIC 42: Fabric IQ
+SEARCH TERMS: fabric iq, fabriciq, fabric
+ANSWER:
+Fabric IQ is a managed knowledge layer that agents can use to access data in Microsoft Fabric.
+
+------------------------------------------------------------------------
+
+TOPIC 43: Web IQ
+SEARCH TERMS: web iq, webiq, bing
+ANSWER:
+Web IQ is a managed knowledge layer that agents can use to access information on the web. With Web IQ, you can integrate search results from Bing into your agent.
+
+------------------------------------------------------------------------
+
+TOPIC 44: Open AI models in Foundry
+SEARCH TERMS: openai, gpt
+ANSWER:
+OpenAI models are available in Microsoft Foundry Models. These include multiple generations of GPT models suited to tasks such as text generation, summarization, translation, and question answering.
+
+------------------------------------------------------------------------
+
+TOPIC 45: Anthropic models in Foundry
+SEARCH TERMS: anthropic, claude, sonnet, haiku, opus, fable, mythos
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/fa093200-6ac4-436b-85e9-f1f6df1c48ee
+ANSWER:
+Anthropic Claude models are available in Microsoft Foundry Models. These include Haiku, Sonnet, Opus, Fable, and Mythos; and provide frontier AI capabilities.
+
+------------------------------------------------------------------------
+
+TOPIC 46: Authentication in Foundry
+SEARCH TERMS: authentication, auth, keybased, key-based, entra, azure active directory, aad, api_key, apikey, api-key, security, secure, authenticate, identity, access control, control access
+ANSWER:
+Microsoft Foundry secures access to its resources through robust authentication mechanisms, including key-based authentication and integration with Microsoft Entra ID. Client applications must authenticate using API keys or managed identity credentials to access models and agents.
+
+------------------------------------------------------------------------
+
+TOPIC 47: Azure Speech
+SEARCH TERMS: voice live, live voice, voicelive, azure speech, azure voice
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/66992e19-2df4-4287-b707-76e7c91b95a0
+ANSWER:
+Azure Speech in Microsoft Foundry Tools provides AI speech capabilities. It includes Text-to-Speech (speech synthesis), Speech-to-Text (speech recognition), Voice Live (realtime spoken conversation), and Speech Translation.
+
+------------------------------------------------------------------------
+
+TOPIC 48: Azure Language
+SEARCH TERMS: azure language, conversational language understanding, luis
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/785ec168-9609-473f-a5f0-a7cc9aaa5029
+ANSWER:
+Azure Language in Microsoft Foundry Tools provides text processing functionality. Its natural language processing capabilities include language detection, entity recognition, and personally identifiable information (PII) detection.
+
+------------------------------------------------------------------------
+
+TOPIC 49: Azure Content Understanding
+SEARCH TERMS: content understanding, document intelligence
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/614dd91c-98d3-4009-9b19-0423e812c4c8
+ANSWER:
+Azure Content Understanding in Microsoft Foundry Tools enables information extraction. It provides capabilities to analyze and extract information from unstructured content, such as documents, images, audio, and video.
+
+------------------------------------------------------------------------
+
+TOPIC 50: Azure Translator
+SEARCH TERMS: azure translator, azure translation
+VIDEO RESOURCE: https://share.synthesia.io/embeds/videos/2f839b96-b2a4-4fb8-ae20-4bffcfe4e92d
+ANSWER:
+Azure Translator in Microsoft Foundry Tools provides translation capabilities to convert text from one language to another.
+
+------------------------------------------------------------------------
+
+CATEGORY: Credentials and certification
+CATEGORY LEARNING RESOURCE: https://aiskillsnavigator.microsoft.com/credentials
+
+TOPIC 51: Microsoft AI Certifications
+SEARCH TERMS: certification, certifications, microsoft certified professional, ai102, ai900, ai103, ai901, ai200, ai300, ai-102, ai-900, ai-103, ai-901, ai-200, ai-300
+ANSWER:
+Microsoft certifications provide a way to validate your competency in AI-related roles. AI-related certification exams cover a range of topics, including AI fundamentals, AI app and agent development, AI cloud solution architecture, and machine learning operations.
+
+------------------------------------------------------------------------
+
+TOPIC 52: Microsoft AI Credentials
+SEARCH TERMS: microsoft applied skill, microsoft applied skills, applied skills credential, applied skills credentials, mas, apl, microsoft credential, microsoft credentials, microsoft ai credentials
+ANSWER:
+Microsoft Applied Skills credentials provide a way to demonstrate your ability to perform specific tasks related to AI. These credentials are designed to be more focused than traditional exam-based certifications, enabling you to showcase your skills in a practical test.
+
+------------------------------------------------------------------------

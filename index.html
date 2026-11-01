@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self' blob: https://*.services.ai.azure.com https://*.openai.azure.com https://*.cognitiveservices.azure.com https://*.tts.speech.microsoft.com https://*.api.cognitive.microsoft.com https://*.blob.core.windows.net; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <title>Syntasia · Video studio</title>
+</head>
+<body>
+  <a class="skip-link" href="#scenes">Skip to scenes</a>
+  <header class="toolbar">
+    <a class="brand" href="#studio"><span aria-hidden="true">▷</span> Syntasia</a>
+    <div class="toolbar-actions">
+      <button id="chat-toggle" class="secondary" aria-expanded="true" aria-controls="chat-panel" disabled>Research &amp; write</button>
+      <button id="configuration" class="secondary" disabled>Configuration</button>
+      <label class="toolbar-field" for="voice">Voice<select id="voice" disabled><option value="">Select voice</option></select></label>
+      <label class="toolbar-field" for="avatar">Avatar<select id="avatar" disabled aria-describedby="video-gates"><option value="">Catalog not qualified</option></select></label>
+      <button id="produce" disabled aria-describedby="video-gates">Produce</button>
+    </div>
+  </header>
+  <main id="studio">
+    <div class="intro"><div><h1>Your video studio</h1><p>Research a script. Shape each scene. Review before publishing.</p></div><span id="scene-count" class="badge">1 scene draft · session only</span></div>
+    <p id="startup" class="notice" role="status">Checking browser startup…</p>
+    <p id="video-gates" class="notice">1080p production uses browser FFmpeg/WASM. Azure avatar availability, transparent output, and remote CORS must be qualified with your resource. Generation is billable; local editing is always available.</p>
+    <p id="status" role="status" aria-live="polite" aria-atomic="true"></p>
+    <div class="workspace" inert>
+      <aside id="chat-panel" class="card chat-panel" aria-labelledby="chat-title">
+        <div class="row heading"><h2 id="chat-title">Research &amp; write</h2><button id="chat-close" class="ghost" aria-label="Collapse chat pane">Close</button></div>
+        <div class="chat-body"><div class="row"><button id="new-chat" class="ghost">New chat</button><small>One target per request</small></div><div id="chat-history" role="log" aria-live="polite" aria-relevant="additions"><p class="empty-chat">No conversation yet. Write locally or connect your own services.</p></div></div>
+        <form id="composer">
+          <label for="target">Target scene<select id="target"></select></label>
+          <label for="prompt">Describe your video<textarea id="prompt" placeholder="Audience, topic and desired length" rows="4"></textarea></label>
+          <label class="check"><input id="editorial" type="checkbox">Editorial only: reword existing facts, no new research</label>
+          <label class="check"><input id="microsoft" type="checkbox">Topic contains Microsoft technical claims</label>
+          <small>New factual content requires Web Search; Microsoft claims additionally require Microsoft Learn. Leave editorial off if unsure.</small>
+          <label for="attachments">Attach reference material<input id="attachments" type="file" accept=".txt,.md" multiple></label>
+          <div id="attachment-list"></div>
+          <small>UTF-8 TXT/MD · 10 files · 1 MiB each · 5 MiB total. Conservative input budget; never silently truncated.</small>
+          <small>Send transmits your prompt, selected script, reference files and conversation to Azure. Foundry uses <code>store: true</code>. Research queries may have separate grounding terms/data boundaries. Automatic MCP approval is limited to <code>https://learn.microsoft.com/api/mcp</code>.</small>
+          <p id="send-hint" class="fine-print">Save session credentials to enable Send.</p>
+          <div class="row actions"><button id="cancel-chat" type="button" class="secondary" disabled>Cancel request</button><button id="send" type="submit" disabled aria-describedby="send-hint">Send</button></div>
+        </form>
+      </aside>
+      <section class="scene-list" aria-label="Ordered scenes">
+        <div id="scenes" tabindex="-1"></div>
+        <div class="row"><button id="add-scene" disabled>+ Add scene</button><small>20 scenes maximum · 5 minutes each · 30 minutes total · device limits apply</small></div>
+        <section id="output" class="card output-empty" aria-label="Assembled output"><span class="output-icon" aria-hidden="true">▷</span><h2>No assembled video yet</h2><p>Downloads appear only after 1080p media validation. Approximate transcript timing is supported.</p></section>
+      </section>
+    </div>
+    <div class="production-bar"><small id="production-status">Production idle · 1080p</small><button id="cancel-production" class="secondary" disabled>Cancel production</button></div>
+  </main>
+  <footer><span>Syntasia · browser-only authoring</span><span>Session work is not saved · no automatic recovery</span></footer>
+  <dialog id="config-dialog" aria-labelledby="config-title">
+    <article>
+      <h2 id="config-title">Configuration</h2><p>Connect your own services. Inference, research, Speech and video are checked independently.</p>
+      <form id="config-form" autocomplete="off">
+        <label for="project-url">Project URL<input id="project-url" type="url" placeholder="https://your-account.services.ai.azure.com/api/projects/studio" required></label>
+        <div><label for="authorization-key">Authorization key</label><div class="key-row"><input id="authorization-key" type="password" autocomplete="off" required><button id="reveal-key" type="button" class="secondary" aria-pressed="false">Reveal</button></div></div>
+        <small>Keys stay in memory, but remain accessible to page code. Use your own evaluation credentials; never distribute a shared service secret.</small>
+        <label for="model-name">Model name<input id="model-name" placeholder="Your deployment identifier" required></label>
+        <details><summary>Advanced service settings · session only</summary>
+          <label for="responses-origin">Explicit Responses resource origin<input id="responses-origin" type="url"></label>
+          <div class="advanced-grid"><label for="speech-endpoint">Speech endpoint override<input id="speech-endpoint" type="url"></label><label for="speech-region">Speech region override<input id="speech-region"></label></div>
+          <label for="speech-key">Separate Speech authorization key<input id="speech-key" type="password" autocomplete="off"></label>
+          <label class="check"><input id="verify-transparency" type="checkbox">Verify transparent avatar output and local-background composition (separate billable test)</label>
+        </details>
+        <p class="notice">Only Project URL and Model name persist in this browser and are readable by same-origin scripts until cleared. Keys, advanced fields and all authoring work stay session-only. New chat and configuration changes reset local continuity; they do not delete Foundry-stored data.</p>
+        <p id="config-status" role="status" aria-live="polite"></p>
+        <div class="row actions"><button id="clear-settings" class="ghost" type="button">Clear settings</button><button id="config-cancel" class="secondary" type="button">Cancel</button><button id="test-connection" class="secondary" type="button">Test connection</button><button id="load-voices" class="secondary" type="button">Load Speech voices</button><button id="test-avatar" class="secondary" type="button">Verify selected avatar</button><button type="submit">Save</button></div>
+      </form>
+      <h3>Independent capability checks</h3>
+      <div class="diagnostics"><table><thead><tr><th>Capability</th><th>Status</th></tr></thead><tbody>
+        <tr><th>Responses inference</th><td id="responses-status">Not tested · explicit billable consent required</td></tr>
+        <tr><th>Research tools</th><td>Unverified until actual required tool execution on a draft</td></tr>
+        <tr><th>Speech voice catalog</th><td id="speech-status">Not loaded · independent access check</td></tr>
+        <tr><th>Avatar / transparent media</th><td>Documented Lisa/Lori candidates in supported regions · qualify selected voice/style and opaque/transparent output independently</td></tr>
+        <tr><th>Timed animation / 1080p MP4</th><td id="media-status">Testing real local encode/decode, animation, muxing and playback; Azure qualification remains separate</td></tr>
+        <tr><th>Browser diagnostics</th><td id="browser-status">Checking…</td></tr>
+      </tbody></table></div>
+      <small>The isolation worker cannot bypass remote CORS. A successful inference request does not verify research, Speech, avatar, transparency or MP4.</small>
+    </article>
+  </dialog>
+  <dialog id="confirm-dialog" aria-labelledby="confirm-title">
+    <article><h2 id="confirm-title">Confirm action</h2><p id="confirm-text"></p><div class="row actions"><button id="confirm-cancel" class="secondary">Cancel</button><button id="confirm-accept">Continue</button></div></article>
+  </dialog>
+  <script type="module" src="./src/main.ts"></script>
+</body>
+</html>

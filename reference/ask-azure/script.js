@@ -1,0 +1,2566 @@
+const CONTENT_FILTER_MESSAGE = "I'm sorry, I can't help with that because it triggered a content-safety filtering policy.\nI can only help with information about AI and computing.";
+
+class AskAnton {
+    constructor() {
+        this.isGenerating = false;
+        this.indexData = null; // Contains the category structure from index.json
+        this.vocabulary = null;  // Set of unique words from keyphrases, used for fuzzy correction
+        this.vocabList = null;    // Array version for iteration
+        this.currentModal = null;
+        this.lastFocusedElement = null;
+        this.modalFocusTrapHandler = null;
+        this.usedVoiceInput = false;
+        this.isConfigured = false;
+        this.config = {
+            endpoint: '',
+            apiKey: '',
+            deployment: '',
+            authMode: 'key', // 'key' or 'entra'
+            clientId: '',
+            tenantId: ''
+        };
+        this.msalInstance = null;
+        this.msalAccount = null;
+        this.initialConfigState = null; // Track initial state when config modal opens
+        this.previousResponseId = null;
+        this.recognition = null;
+        this.isListening = false;
+        this.recordingTimeout = null;
+        this.shouldStop = false;
+        this.currentAudio = null;
+        this.currentAudioResolve = null;
+        this.isSpeaking = false;
+
+        this.elements = {
+            chatContainer: document.getElementById('chat-container'),
+            chatMessages: document.getElementById('chat-messages'),
+            userInput: document.getElementById('user-input'),
+            sendBtn: document.getElementById('send-btn'),
+            micBtn: document.getElementById('mic-btn'),
+            restartBtn: document.getElementById('restart-btn'),
+            searchStatus: document.getElementById('search-status'),
+            configBtn: document.getElementById('config-btn'),
+            aboutBtn: document.getElementById('about-btn'),
+            aboutModal: document.getElementById('about-modal'),
+            aboutModalClose: document.getElementById('about-modal-close'),
+            aboutModalOk: document.getElementById('about-modal-ok'),
+            configModal: document.getElementById('config-modal'),
+            configCancel: document.getElementById('config-cancel'),
+            configSave: document.getElementById('config-save'),
+            foundryEndpoint: document.getElementById('foundry-endpoint'),
+            foundryKey: document.getElementById('foundry-key'),
+            foundryDeployment: document.getElementById('foundry-deployment'),
+            configStatus: document.getElementById('config-status'),
+            authModeToggle: document.getElementById('auth-mode-toggle'),
+            keyAuthFields: document.getElementById('key-auth-fields'),
+            entraAuthFields: document.getElementById('entra-auth-fields'),
+            entraClientId: document.getElementById('entra-client-id'),
+            entraTenantId: document.getElementById('entra-tenant-id'),
+            entraSigninBtn: document.getElementById('entra-signin-btn'),
+            signinStatus: document.getElementById('signin-status'),
+            entraHelpBtn: document.getElementById('entra-help-btn'),
+            entraHelpModal: document.getElementById('entra-help-modal'),
+            entraHelpModalClose: document.getElementById('entra-help-modal-close'),
+            entraHelpModalOk: document.getElementById('entra-help-modal-ok'),
+            videoModal: document.getElementById('video-modal'),
+            videoModalClose: document.getElementById('video-modal-close'),
+            videoModalOk: document.getElementById('video-modal-ok'),
+            videoModalTitle: document.getElementById('video-modal-title'),
+            videoIframe: document.getElementById('video-iframe')
+        };
+
+        this.systemPrompt = `You are Anton, a knowledgeable and friendly AI learning assistant who helps students learn about AI concepts and Microsoft Foundry.
+
+IMPORTANT: Follow these guidelines when responding:
+- Do not engage in conversation on topics other than artificial intelligence and software development on Azure.
+- Explain concepts clearly and concisely, using examples and analogies when helpful.
+- When context is provided, use it to inform your answer.
+- When additional information is needed, use the Microsoft Learn MCP server or web search.
+- Only provide code examples when specifically asked, and only from official documentation found using the Microsoft Learn MCP server.`;
+
+        this.initialize();
+    }
+
+    async initialize() {
+        try {
+            // Load configuration
+            this.loadConfig();
+
+            // Load the index
+            await this.loadIndex();
+
+            // Initialize speech recognition
+            this.initializeSpeechRecognition();
+
+            // Update UI state again after speech recognition is initialized
+            this.updateUIState();
+
+            // Setup event listeners
+            this.setupEventListeners();
+
+            // Show chat interface
+            this.showChatInterface();
+
+        } catch (error) {
+            console.error('Initialization error:', error);
+            alert('Failed to initialize. Please refresh the page.');
+        }
+    }
+
+    loadConfig() {
+        const saved = localStorage.getItem('askAntonFoundryConfig');
+        if (saved) {
+            try {
+                const savedConfig = JSON.parse(saved);
+                // Load non-sensitive config from storage
+                this.config.endpoint = savedConfig.endpoint || '';
+                this.config.deployment = savedConfig.deployment || '';
+                this.config.authMode = savedConfig.authMode || 'key';
+                this.config.clientId = savedConfig.clientId || '';
+                this.config.tenantId = savedConfig.tenantId || '';
+
+                this.elements.foundryEndpoint.value = this.config.endpoint;
+                this.elements.foundryKey.value = ''; // API key must be re-entered each session
+                this.elements.foundryDeployment.value = this.config.deployment;
+                this.elements.entraClientId.value = this.config.clientId;
+                this.elements.entraTenantId.value = this.config.tenantId;
+
+                // Set toggle state
+                if (this.config.authMode === 'entra') {
+                    this.elements.authModeToggle.checked = true;
+                    this.elements.keyAuthFields.style.display = 'none';
+                    this.elements.entraAuthFields.style.display = 'block';
+                } else {
+                    this.elements.authModeToggle.checked = false;
+                    this.elements.keyAuthFields.style.display = 'block';
+                    this.elements.entraAuthFields.style.display = 'none';
+                }
+
+                // Initialize MSAL if in Entra ID mode and we have clientId and tenantId
+                if (this.config.authMode === 'entra' && this.config.clientId && this.config.tenantId) {
+                    this.initializeMSAL();
+                }
+
+                // Only mark as configured if required fields are present
+                if (this.config.endpoint && this.config.deployment) {
+                    if (this.config.authMode === 'key' && this.config.apiKey) {
+                        this.isConfigured = true;
+                    } else if (this.config.authMode === 'entra' && this.msalAccount) {
+                        this.isConfigured = true;
+                    }
+                }
+            } catch (e) {
+                console.error('Error loading config:', e);
+            }
+        }
+        this.updateUIState();
+    }
+
+    initializeMSAL() {
+        if (!this.config.clientId || !this.config.tenantId) {
+            console.error('Cannot initialize MSAL: missing client ID or tenant ID');
+            return;
+        }
+
+        try {
+            const msalConfig = {
+                auth: {
+                    clientId: this.config.clientId,
+                    authority: `https://login.microsoftonline.com/${this.config.tenantId}`,
+                    redirectUri: window.location.href.split('?')[0].split('#')[0]
+                },
+                cache: {
+                    cacheLocation: 'localStorage',
+                    storeAuthStateInCookie: false
+                },
+                system: {
+                    allowRedirectInIframe: false,
+                    windowHashTimeout: 60000,
+                    iframeHashTimeout: 6000,
+                    loadFrameTimeout: 0
+                }
+            };
+
+            this.msalInstance = new msal.PublicClientApplication(msalConfig);
+
+            // Initialize MSAL and handle any redirect responses
+            this.msalInstance.initialize().then(() => {
+                // Handle redirect response (important for popup flows)
+                return this.msalInstance.handleRedirectPromise();
+            }).then((response) => {
+                // If response exists, user just logged in via redirect
+                if (response && response.account) {
+                    this.msalAccount = response.account;
+                    this.msalInstance.setActiveAccount(this.msalAccount);
+                } else {
+                    // Check if user is already signed in
+                    const accounts = this.msalInstance.getAllAccounts();
+                    if (accounts.length > 0) {
+                        this.msalAccount = accounts[0];
+                        this.msalInstance.setActiveAccount(this.msalAccount);
+                    }
+                }
+
+                if (this.msalAccount) {
+                    this.isConfigured = true;
+                    this.updateUIState();
+                    // Don't update sign-in status here - it will be updated when modal is opened
+                }
+            }).catch((error) => {
+                console.error('Error handling MSAL redirect:', error);
+            });
+        } catch (error) {
+            console.error('Error initializing MSAL:', error);
+        }
+    }
+
+    updateSigninStatus(message, isError = false) {
+        if (this.elements.signinStatus) {
+            this.elements.signinStatus.textContent = message;
+            this.elements.signinStatus.style.color = isError ? '#721c24' : '#155724';
+        }
+    }
+
+    updateSignInButtonState() {
+        if (this.msalAccount) {
+            // User is signed in - show Sign Out button
+            this.elements.entraSigninBtn.textContent = 'Sign Out';
+            this.elements.entraSigninBtn.disabled = false;
+            this.elements.entraSigninBtn.setAttribute('aria-label', 'Sign out of Entra ID');
+            this.updateSigninStatus(`Signed in as ${this.msalAccount.username}`);
+        } else {
+            // User is not signed in - show Sign In button
+            this.elements.entraSigninBtn.textContent = 'Sign In';
+            this.elements.entraSigninBtn.setAttribute('aria-label', 'Sign in with Entra ID');
+
+            // Enable/disable based on whether credentials are entered
+            const clientId = this.elements.entraClientId.value.trim();
+            const tenantId = this.elements.entraTenantId.value.trim();
+            this.elements.entraSigninBtn.disabled = !clientId || !tenantId;
+
+            this.updateSigninStatus('');
+        }
+    }
+
+    handleAuthModeToggle() {
+        const isEntraMode = this.elements.authModeToggle.checked;
+
+        if (isEntraMode) {
+            // Switch to Entra ID mode
+            this.elements.keyAuthFields.style.display = 'none';
+            this.elements.entraAuthFields.style.display = 'block';
+            this.elements.authModeToggle.setAttribute('aria-checked', 'true');
+            this.elements.entraHelpBtn.style.display = 'inline-flex';
+
+            // Update sign-in button state if already signed in
+            this.updateSignInButtonState();
+        } else {
+            // Switch to Key mode
+            this.elements.keyAuthFields.style.display = 'block';
+            this.elements.entraAuthFields.style.display = 'none';
+            this.elements.authModeToggle.setAttribute('aria-checked', 'false');
+            this.elements.entraHelpBtn.style.display = 'none';
+        }
+
+        // Clear config status but preserve sign-in status in Entra mode
+        this.elements.configStatus.textContent = '';
+        this.elements.configStatus.className = 'config-status';
+        if (!isEntraMode) {
+            this.updateSigninStatus('');
+        }
+    }
+
+    async signInWithEntraID() {
+        const clientId = this.elements.entraClientId.value.trim();
+        const tenantId = this.elements.entraTenantId.value.trim();
+        const endpoint = this.elements.foundryEndpoint.value.trim();
+
+        if (!clientId || !tenantId) {
+            this.updateSigninStatus('Please enter both Client ID and Tenant ID', true);
+            return;
+        }
+
+        if (!endpoint) {
+            this.updateSigninStatus('Please enter an endpoint URL first', true);
+            return;
+        }
+
+        // Validate and extract base endpoint (same logic as saveConfig)
+        let baseEndpoint = endpoint;
+        try {
+            const url = new URL(endpoint);
+            if (url.protocol !== 'https:') {
+                this.updateSigninStatus('Endpoint must use HTTPS', true);
+                return;
+            }
+
+            const comIndex = endpoint.indexOf('.com');
+            if (comIndex !== -1) {
+                baseEndpoint = endpoint.substring(0, comIndex + 4);
+            }
+        } catch (e) {
+            this.updateSigninStatus('Invalid endpoint URL', true);
+            return;
+        }
+
+        // Update config with new values before initializing MSAL
+        this.config.clientId = clientId;
+        this.config.tenantId = tenantId;
+        this.config.endpoint = baseEndpoint;
+
+        // Initialize MSAL with current credentials
+        this.initializeMSAL();
+
+        if (!this.msalInstance) {
+            this.updateSigninStatus('Failed to initialize authentication', true);
+            return;
+        }
+
+        try {
+            this.updateSigninStatus('Opening sign-in window...');
+
+            // Use standard Azure Cognitive Services scope
+            const loginRequest = {
+                scopes: ['https://cognitiveservices.azure.com/.default'],
+                prompt: 'select_account',
+                redirectUri: window.location.href.split('?')[0].split('#')[0]
+            };
+
+            const response = await this.msalInstance.loginPopup(loginRequest);
+
+            if (response && response.account) {
+                this.msalAccount = response.account;
+                this.msalInstance.setActiveAccount(this.msalAccount);
+                this.updateSignInButtonState();
+                console.log('Successfully signed in with Entra ID');
+            } else {
+                this.updateSigninStatus('Sign-in failed', true);
+            }
+        } catch (error) {
+            console.error('Error during sign-in:', error);
+            this.updateSigninStatus(`Sign-in error: ${error.message}`, true);
+        }
+    }
+
+    async signOutEntraID() {
+        if (!this.msalInstance || !this.msalAccount) {
+            return;
+        }
+
+        try {
+            this.updateSigninStatus('Signing out...');
+
+            const logoutRequest = {
+                account: this.msalAccount,
+                postLogoutRedirectUri: window.location.href.split('?')[0].split('#')[0]
+            };
+
+            await this.msalInstance.logoutPopup(logoutRequest);
+
+            this.msalAccount = null;
+            this.isConfigured = false;
+            this.updateSignInButtonState();
+            this.updateUIState();
+
+            console.log('Successfully signed out');
+        } catch (error) {
+            console.error('Error during sign-out:', error);
+            this.updateSigninStatus(`Sign-out error: ${error.message}`, true);
+        }
+    }
+
+    async getAccessToken() {
+        if (!this.msalInstance || !this.msalAccount) {
+            throw new Error('Not signed in with Entra ID');
+        }
+
+        try {
+            // Use standard Azure Cognitive Services scope
+            const tokenRequest = {
+                scopes: ['https://cognitiveservices.azure.com/.default'],
+                account: this.msalAccount
+            };
+
+            const response = await this.msalInstance.acquireTokenSilent(tokenRequest);
+            return response.accessToken;
+        } catch (error) {
+            console.error('Silent token acquisition failed, attempting interactive:', error);
+
+            // If silent acquisition fails, try interactive
+            try {
+                const tokenRequest = {
+                    scopes: ['https://cognitiveservices.azure.com/.default'],
+                    account: this.msalAccount
+                };
+                const response = await this.msalInstance.acquireTokenPopup(tokenRequest);
+                return response.accessToken;
+            } catch (interactiveError) {
+                console.error('Interactive token acquisition failed:', interactiveError);
+                throw new Error('Failed to acquire access token');
+            }
+        }
+    }
+
+    saveConfig() {
+        const endpoint = this.elements.foundryEndpoint.value.trim();
+        const deployment = this.elements.foundryDeployment.value.trim();
+        const statusDiv = this.elements.configStatus;
+        const authMode = this.elements.authModeToggle.checked ? 'entra' : 'key';
+
+        if (!endpoint || !deployment) {
+            statusDiv.textContent = 'Please fill in endpoint and deployment';
+            statusDiv.className = 'config-status error';
+            return;
+        }
+
+        // Validate endpoint format and extract base URL
+        let baseEndpoint = endpoint;
+        try {
+            const url = new URL(endpoint);
+            if (url.protocol !== 'https:') {
+                statusDiv.textContent = 'Endpoint must use HTTPS';
+                statusDiv.className = 'config-status error';
+                return;
+            }
+
+            // Extract substring from beginning to first ".com" (inclusive)
+            const comIndex = endpoint.indexOf('.com');
+            if (comIndex !== -1) {
+                baseEndpoint = endpoint.substring(0, comIndex + 4); // +4 to include ".com"
+            }
+        } catch (e) {
+            statusDiv.textContent = 'Invalid endpoint URL';
+            statusDiv.className = 'config-status error';
+            return;
+        }
+
+        this.config.endpoint = baseEndpoint;
+        this.config.deployment = deployment;
+        this.config.authMode = authMode;
+
+        // Validate based on authentication mode
+        if (authMode === 'key') {
+            const apiKey = this.elements.foundryKey.value.trim();
+            if (!apiKey) {
+                statusDiv.textContent = 'Please enter an API key';
+                statusDiv.className = 'config-status error';
+                return;
+            }
+            this.config.apiKey = apiKey;
+            this.config.clientId = '';
+            this.config.tenantId = '';
+            this.msalInstance = null;
+            this.msalAccount = null;
+        } else {
+            const clientId = this.elements.entraClientId.value.trim();
+            const tenantId = this.elements.entraTenantId.value.trim();
+
+            if (!clientId || !tenantId) {
+                statusDiv.textContent = 'Please enter both Client ID and Tenant ID';
+                statusDiv.className = 'config-status error';
+                return;
+            }
+
+            if (!this.msalAccount) {
+                statusDiv.textContent = 'Please sign in with Entra ID before saving';
+                statusDiv.className = 'config-status error';
+                return;
+            }
+
+            this.config.clientId = clientId;
+            this.config.tenantId = tenantId;
+            this.config.apiKey = '';
+        }
+
+        // Save config to localStorage (do not persist apiKey)
+        const configToPersist = {
+            endpoint: this.config.endpoint,
+            deployment: this.config.deployment,
+            authMode: this.config.authMode,
+            clientId: this.config.clientId,
+            tenantId: this.config.tenantId
+        };
+        localStorage.setItem('askAntonFoundryConfig', JSON.stringify(configToPersist));
+
+        this.isConfigured = true;
+        statusDiv.textContent = 'Configuration saved successfully!';
+        statusDiv.className = 'config-status success';
+
+        this.updateUIState();
+
+        // Auto-close modal after short delay
+        setTimeout(() => {
+            this.hideConfigModal();
+        }, 1500);
+    }
+
+    updateUIState() {
+        // Mic button should be enabled if speech is supported, regardless of config
+        this.elements.micBtn.disabled = !this.recognition;
+
+        // Enable input and send button regardless of config state
+        // The sendMessage() function will handle showing a message if not configured
+        this.elements.userInput.disabled = false;
+        this.elements.sendBtn.disabled = false;
+
+        if (this.isConfigured) {
+            this.elements.restartBtn.disabled = false;
+        } else {
+            this.elements.restartBtn.disabled = true;
+        }
+    }
+
+    async loadIndex() {
+        try {
+            const response = await fetch('index.json');
+            if (!response.ok) throw new Error('Failed to load index');
+            this.indexData = await response.json();
+            console.log('Loaded index with', this.indexData.length, 'categories');
+
+            // Build a flat lookup map: keyword -> [{document, category, link}, ...]
+            // A keyword can map to multiple documents
+            this.keywordMap = new Map();
+            this.indexData.forEach(category => {
+                category.documents.forEach(doc => {
+                    doc.keywords.forEach(keyword => {
+                        const normalizedKeyword = keyword.toLowerCase().trim();
+                        if (normalizedKeyword) {
+                            let entries = this.keywordMap.get(normalizedKeyword);
+                            if (!entries) {
+                                entries = [];
+                                this.keywordMap.set(normalizedKeyword, entries);
+                            }
+                            entries.push({
+                                document: doc,
+                                category: category.category,
+                                link: category.link
+                            });
+                        }
+                    });
+                });
+            });
+            console.log('Built keyword map with', this.keywordMap.size, 'keywords');
+
+            // Build vocabulary from all keywords for fuzzy correction
+            this.vocabulary = new Set();
+            this.keywordMap.forEach((entries, keyword) => {
+                // Split multi-word keywords into individual words
+                keyword.split(/\s+/).forEach(word => {
+                    if (word.length >= 2) {  // Filter out single-letter words
+                        this.vocabulary.add(word);
+                    }
+                });
+            });
+            this.vocabList = Array.from(this.vocabulary);
+            console.log('Built vocabulary with', this.vocabulary.size, 'unique words for fuzzy matching');
+        } catch (error) {
+            console.error('Error loading index:', error);
+            throw error;
+        }
+    }
+
+    showChatInterface() {
+        this.elements.chatContainer.style.display = 'flex';
+        this.elements.userInput.focus();
+    }
+
+    initializeSpeechRecognition() {
+        // Azure Speech API will be used - check for microphone support
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            console.warn('Microphone access not supported in this browser');
+            this.recognition = null;
+            return;
+        }
+
+        this.recognition = true; // Flag to indicate speech is available
+        this.mediaRecorder = null;
+        this.audioChunks = [];
+    }
+
+    getSpeechEndpointBase() {
+        if (!this.config.endpoint) {
+            throw new Error('A Foundry endpoint is required before using speech services.');
+        }
+
+        let parsedEndpoint;
+        try {
+            parsedEndpoint = new URL(this.config.endpoint);
+        } catch (error) {
+            throw new Error('The Foundry endpoint is not a valid URL.');
+        }
+
+        const speechHostname = parsedEndpoint.hostname.replace(
+            '.services.ai.azure.com',
+            '.cognitiveservices.azure.com'
+        );
+
+        if (speechHostname === parsedEndpoint.hostname) {
+            throw new Error('The Foundry endpoint must use the services.ai.azure.com host pattern to derive the speech endpoint.');
+        }
+
+        return `${parsedEndpoint.protocol}//${speechHostname}`;
+    }
+
+    stopListening() {
+        this.isListening = false;
+        this.elements.micBtn.classList.remove('listening');
+        this.elements.micBtn.title = 'Voice input';
+        this.elements.micBtn.setAttribute('aria-pressed', 'false');
+
+        // Clear the auto-stop timeout
+        if (this.recordingTimeout) {
+            clearTimeout(this.recordingTimeout);
+            this.recordingTimeout = null;
+        }
+
+        // Stop recording if active
+        if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
+            this.mediaRecorder.stop();
+        }
+    }
+
+    async startAzureSpeechRecognition() {
+        if (!this.isConfigured) {
+            this.promptConfigureFoundry();
+            return;
+        }
+
+        try {
+            // Request microphone access
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    channelCount: 1,
+                    sampleRate: 16000
+                }
+            });
+
+            this.audioChunks = [];
+
+            // Use audio/webm;codecs=opus or check available types
+            let mimeType = 'audio/webm;codecs=opus';
+            if (!MediaRecorder.isTypeSupported(mimeType)) {
+                mimeType = 'audio/webm';
+            }
+
+            this.mediaRecorder = new MediaRecorder(stream, { mimeType: mimeType });
+
+            this.mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                    this.audioChunks.push(event.data);
+                }
+            };
+
+            this.mediaRecorder.onstop = async () => {
+                // Stop all tracks to release the microphone
+                stream.getTracks().forEach(track => track.stop());
+
+                this.stopListening();
+
+                // Clear the auto-stop timeout
+                if (this.recordingTimeout) {
+                    clearTimeout(this.recordingTimeout);
+                    this.recordingTimeout = null;
+                }
+
+                if (this.audioChunks.length === 0) {
+                    return;
+                }
+
+                try {
+                    const audioBlob = new Blob(this.audioChunks, { type: mimeType });
+
+                    // Convert to WAV format for Azure Speech API
+                    const wavBlob = await this.convertToWav(audioBlob);
+
+                    // Call Azure Speech API
+                    await this.transcribeAudio(wavBlob);
+                } catch (error) {
+                    console.error('Error processing audio:', error);
+                    alert('Failed to process audio. Please try again.');
+                }
+            };
+
+            // Request data in chunks for better compatibility
+            this.mediaRecorder.start(100);
+            this.isListening = true;
+            this.elements.micBtn.classList.add('listening');
+            this.elements.micBtn.title = 'Listening... (auto-stops in 5s or click to stop)';
+            this.elements.micBtn.setAttribute('aria-pressed', 'true');
+
+            // Auto-stop recording after 5 seconds
+            this.recordingTimeout = setTimeout(() => {
+                if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
+                    this.mediaRecorder.stop();
+                }
+            }, 5000); // 5 seconds
+
+        } catch (error) {
+            console.error('Error accessing microphone:', error);
+            alert('Could not access microphone. Please check permissions.');
+            this.stopListening();
+        }
+    }
+
+    async convertToWav(audioBlob) {
+        try {
+            // Create an audio context
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+            // Read the blob as array buffer
+            const arrayBuffer = await audioBlob.arrayBuffer();
+
+            // Decode the audio data
+            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+            // Convert to WAV format
+            const wavBuffer = this.audioBufferToWav(audioBuffer);
+
+            // Create a blob from the WAV buffer
+            const wavBlob = new Blob([wavBuffer], { type: 'audio/wav' });
+
+            return wavBlob;
+        } catch (error) {
+            console.error('Error converting to WAV:', error);
+            throw new Error('Failed to convert audio to WAV format');
+        }
+    }
+
+    audioBufferToWav(audioBuffer) {
+        const numChannels = 1; // Force mono
+        const sampleRate = 16000; // Force 16kHz for Azure Speech
+        const format = 1; // PCM
+        const bitsPerSample = 16;
+
+        // Resample if needed
+        let samples;
+        if (audioBuffer.sampleRate !== sampleRate) {
+            samples = this.resampleAudio(audioBuffer, sampleRate);
+        } else {
+            samples = audioBuffer.getChannelData(0);
+        }
+
+        const numSamples = samples.length;
+        const buffer = new ArrayBuffer(44 + numSamples * 2);
+        const view = new DataView(buffer);
+
+        // Write WAV header
+        this.writeString(view, 0, 'RIFF');
+        view.setUint32(4, 36 + numSamples * 2, true);
+        this.writeString(view, 8, 'WAVE');
+        this.writeString(view, 12, 'fmt ');
+        view.setUint32(16, 16, true); // fmt chunk size
+        view.setUint16(20, format, true);
+        view.setUint16(22, numChannels, true);
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, sampleRate * numChannels * bitsPerSample / 8, true);
+        view.setUint16(32, numChannels * bitsPerSample / 8, true);
+        view.setUint16(34, bitsPerSample, true);
+        this.writeString(view, 36, 'data');
+        view.setUint32(40, numSamples * 2, true);
+
+        // Write PCM samples
+        let offset = 44;
+        for (let i = 0; i < numSamples; i++) {
+            const sample = Math.max(-1, Math.min(1, samples[i]));
+            view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+            offset += 2;
+        }
+
+        return buffer;
+    }
+
+    resampleAudio(audioBuffer, targetSampleRate) {
+        const sourceRate = audioBuffer.sampleRate;
+        const sourceData = audioBuffer.getChannelData(0);
+        const sourceLength = sourceData.length;
+        const targetLength = Math.round(sourceLength * targetSampleRate / sourceRate);
+        const resampledData = new Float32Array(targetLength);
+
+        for (let i = 0; i < targetLength; i++) {
+            const sourceIndex = i * sourceRate / targetSampleRate;
+            const index = Math.floor(sourceIndex);
+            const fraction = sourceIndex - index;
+
+            if (index + 1 < sourceLength) {
+                resampledData[i] = sourceData[index] * (1 - fraction) + sourceData[index + 1] * fraction;
+            } else {
+                resampledData[i] = sourceData[index];
+            }
+        }
+
+        return resampledData;
+    }
+
+    writeString(view, offset, string) {
+        for (let i = 0; i < string.length; i++) {
+            view.setUint8(offset + i, string.charCodeAt(i));
+        }
+    }
+
+    async transcribeAudio(audioBlob) {
+        try {
+            const speechEndpoint = this.getSpeechEndpointBase();
+
+            // Build headers based on authentication mode
+            const requestHeaders = {
+                'Content-Type': 'audio/wav; codecs=audio/pcm; samplerate=16000',
+                'Accept': 'application/json'
+            };
+
+            if (this.config.authMode === 'entra') {
+                const accessToken = await this.getAccessToken();
+                requestHeaders['Authorization'] = `Bearer ${accessToken}`;
+            } else {
+                requestHeaders['Ocp-Apim-Subscription-Key'] = this.config.apiKey;
+            }
+
+            const candidateUrls = [
+                `${speechEndpoint}/stt/speech/recognition/conversation/cognitiveservices/v1?language=en-US&format=detailed`,
+                `${speechEndpoint}/speech/recognition/conversation/cognitiveservices/v1?language=en-US&format=detailed`
+            ];
+
+            let response = null;
+            let errorText = '';
+
+            for (const url of candidateUrls) {
+                response = await fetch(url, {
+                    method: 'POST',
+                    headers: requestHeaders,
+                    body: audioBlob
+                });
+
+                if (response.ok) {
+                    break;
+                }
+
+                errorText = await response.text();
+                console.error('Speech API error:', errorText);
+
+                if (response.status !== 404) {
+                    throw new Error(`Transcription failed: ${response.status} - ${errorText}`);
+                }
+            }
+
+            if (!response || !response.ok) {
+                throw new Error(`Transcription failed: ${response.status} - ${errorText}`);
+            }
+
+            const data = await response.json();
+
+            // Extract transcript from response
+            let transcript = '';
+
+            // Check different possible response formats
+            if (data.DisplayText) {
+                transcript = data.DisplayText;
+            } else if (data.NBest && data.NBest.length > 0) {
+                transcript = data.NBest[0].Display || data.NBest[0].Lexical;
+            } else if (data.RecognitionStatus === 'Success' && data.Offset !== undefined) {
+                // Check if we have detailed results
+                if (data.NBest && data.NBest.length > 0 && data.NBest[0].Lexical) {
+                    transcript = data.NBest[0].Display || data.NBest[0].Lexical;
+                }
+            }
+
+            // Trim and check for empty transcript
+            transcript = transcript.trim();
+
+            if (transcript) {
+                this.elements.userInput.value = transcript;
+                this.usedVoiceInput = true;
+                this.autoResizeTextarea();
+                this.elements.userInput.focus();
+
+                // Automatically submit the message
+                setTimeout(() => {
+                    this.sendMessage();
+                }, 100);
+            } else {
+                // Provide detailed feedback
+                let errorMsg = 'No speech detected.';
+                if (data.RecognitionStatus) {
+                    errorMsg += ` Status: ${data.RecognitionStatus}.`;
+                }
+                if (data.Offset !== undefined && data.Duration !== undefined) {
+                    errorMsg += ` Audio received (${data.Duration / 10000000}s).`;
+                }
+                errorMsg += ' Please speak louder or try again.';
+
+                alert(errorMsg);
+            }
+
+        } catch (error) {
+            console.error('Error transcribing audio:', error);
+            alert('Failed to transcribe audio: ' + error.message);
+        }
+    }
+
+    setupEventListeners() {
+        // Send message or stop response
+        this.elements.sendBtn.addEventListener('click', () => {
+            if (this.isGenerating || this.isSpeaking) {
+                this.stopResponse();
+            } else {
+                this.sendMessage();
+            }
+        });
+
+        // Enter key to send (Shift+Enter for new line)
+        this.elements.userInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey && !this.isGenerating && !this.isSpeaking) {
+                e.preventDefault();
+                this.sendMessage();
+            }
+        });
+
+        // Auto-resize textarea
+        this.elements.userInput.addEventListener('input', () => {
+            this.autoResizeTextarea();
+        });
+
+        // Global keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            // Ctrl/Cmd + K to focus input
+            if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+                e.preventDefault();
+                this.elements.userInput.focus();
+            }
+            // Ctrl/Cmd + N for new chat
+            if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+                e.preventDefault();
+                this.restartConversation();
+            }
+        });
+
+        // Microphone button
+        if (this.elements.micBtn) {
+            this.elements.micBtn.addEventListener('click', () => {
+                this.toggleSpeechRecognition();
+            });
+        }
+
+        // Restart button
+        this.elements.restartBtn.addEventListener('click', () => {
+            this.restartConversation();
+        });
+
+        // Config button
+        this.elements.configBtn.addEventListener('click', () => {
+            this.lastFocusedElement = this.elements.configBtn;
+            this.showConfigModal();
+        });
+
+        // About button
+        this.elements.aboutBtn.addEventListener('click', () => {
+            this.lastFocusedElement = this.elements.aboutBtn;
+            this.showAboutModal();
+        });
+
+        // About modal handlers
+        this.elements.aboutModalClose.addEventListener('click', () => {
+            this.hideAboutModal();
+        });
+
+        this.elements.aboutModalOk.addEventListener('click', () => {
+            this.hideAboutModal();
+        });
+
+        // Close about modal on overlay click
+        this.elements.aboutModal.addEventListener('click', (e) => {
+            if (e.target === this.elements.aboutModal || e.target.classList.contains('modal-overlay')) {
+                this.hideAboutModal();
+            }
+        });
+
+        // Entra ID Help button
+        this.elements.entraHelpBtn.addEventListener('click', () => {
+            this.showEntraHelpModal();
+        });
+
+        // Entra ID Help modal handlers
+        this.elements.entraHelpModalClose.addEventListener('click', () => {
+            this.hideEntraHelpModal();
+        });
+
+        this.elements.entraHelpModalOk.addEventListener('click', () => {
+            this.hideEntraHelpModal();
+        });
+
+        // Close Entra help modal on overlay click
+        this.elements.entraHelpModal.addEventListener('click', (e) => {
+            if (e.target === this.elements.entraHelpModal || e.target.classList.contains('modal-overlay')) {
+                this.hideEntraHelpModal();
+            }
+        });
+
+        // Video modal handlers
+        this.elements.videoModalClose.addEventListener('click', () => {
+            this.hideVideoModal();
+        });
+
+        this.elements.videoModalOk.addEventListener('click', () => {
+            this.hideVideoModal();
+        });
+
+        // Close video modal on overlay click
+        this.elements.videoModal.addEventListener('click', (e) => {
+            if (e.target === this.elements.videoModal || e.target.classList.contains('modal-overlay')) {
+                this.hideVideoModal();
+            }
+        });
+
+        // Config modal handlers
+        this.elements.configCancel.addEventListener('click', () => {
+            this.hideConfigModal();
+        });
+
+        this.elements.configSave.addEventListener('click', () => {
+            this.saveConfig();
+        });
+
+        // Entra ID input fields - enable sign-in button when both are filled
+        const checkEntraFields = () => {
+            const clientId = this.elements.entraClientId.value.trim();
+            const tenantId = this.elements.entraTenantId.value.trim();
+            this.elements.entraSigninBtn.disabled = !clientId || !tenantId;
+        };
+
+        this.elements.entraClientId.addEventListener('input', () => {
+            checkEntraFields();
+            this.checkConfigChanges();
+        });
+        this.elements.entraTenantId.addEventListener('input', () => {
+            checkEntraFields();
+            this.checkConfigChanges();
+        });
+
+        // Config field change detection for other fields
+        [this.elements.foundryEndpoint, this.elements.foundryKey, this.elements.foundryDeployment].forEach(field => {
+            field.addEventListener('input', () => this.checkConfigChanges());
+        });
+
+        // Auth mode toggle
+        this.elements.authModeToggle.addEventListener('change', () => {
+            this.handleAuthModeToggle();
+            this.checkConfigChanges();
+        });
+
+        // Entra ID Sign-in/Sign-out button
+        this.elements.entraSigninBtn.addEventListener('click', () => {
+            if (this.msalAccount) {
+                this.signOutEntraID();
+            } else {
+                this.signInWithEntraID();
+            }
+        });
+
+        // Prevent closing config modal on overlay click (user must click Cancel or Save)
+        this.elements.configModal.addEventListener('click', (e) => {
+            // Do nothing - require explicit Cancel or Save
+        });
+
+        // Close modals on Escape key (except config modal)
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                if (this.elements.videoModal.style.display === 'flex') {
+                    this.hideVideoModal();
+                } else if (this.elements.entraHelpModal.style.display === 'flex') {
+                    this.hideEntraHelpModal();
+                } else if (this.elements.aboutModal.style.display === 'flex') {
+                    this.hideAboutModal();
+                }
+                // Config modal cannot be closed with Escape - must use Cancel or Save
+            }
+        });
+
+        // Example question buttons
+        const exampleBtns = document.querySelectorAll('.example-btn');
+        exampleBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const question = btn.getAttribute('data-question');
+                this.elements.userInput.value = question;
+                this.elements.userInput.focus();
+                this.autoResizeTextarea();
+            });
+        });
+    }
+
+    autoResizeTextarea() {
+        const textarea = this.elements.userInput;
+        textarea.style.height = 'auto';
+        textarea.style.height = Math.min(textarea.scrollHeight, 150) + 'px';
+    }
+
+    /**
+     * Calculate Jaro-Winkler similarity between two strings.
+     * Returns a value between 0 (no similarity) and 1 (identical).
+     * Used for fuzzy keyword matching to correct typos.
+     */
+    jaroWinkler(s1, s2) {
+        if (s1 === s2) return 1.0;
+        if (!s1 || !s2) return 0.0;
+
+        const len1 = s1.length;
+        const len2 = s2.length;
+        const matchWindow = Math.max(Math.floor(Math.max(len1, len2) / 2) - 1, 0);
+
+        const s1Matches = new Array(len1).fill(false);
+        const s2Matches = new Array(len2).fill(false);
+
+        let matches = 0;
+        let transpositions = 0;
+
+        // Find matches
+        for (let i = 0; i < len1; i++) {
+            const start = Math.max(0, i - matchWindow);
+            const end = Math.min(i + matchWindow + 1, len2);
+
+            for (let j = start; j < end; j++) {
+                if (s2Matches[j] || s1[i] !== s2[j]) continue;
+                s1Matches[i] = true;
+                s2Matches[j] = true;
+                matches++;
+                break;
+            }
+        }
+
+        if (matches === 0) return 0.0;
+
+        // Count transpositions
+        let k = 0;
+        for (let i = 0; i < len1; i++) {
+            if (!s1Matches[i]) continue;
+            while (!s2Matches[k]) k++;
+            if (s1[i] !== s2[k]) transpositions++;
+            k++;
+        }
+
+        // Calculate Jaro similarity
+        const jaro = (matches / len1 + matches / len2 + (matches - transpositions / 2) / matches) / 3;
+
+        // Apply Winkler modification (boost for common prefix)
+        const prefixLength = Math.min(4, Math.min(len1, len2));
+        let commonPrefix = 0;
+        for (let i = 0; i < prefixLength; i++) {
+            if (s1[i] === s2[i]) commonPrefix++;
+            else break;
+        }
+
+        return jaro + commonPrefix * 0.1 * (1 - jaro);
+    }
+
+    /**
+     * Correct a single token by fuzzy-matching against the known vocabulary.
+     * Returns the original token if no good match is found (similarity < threshold).
+     * @param {string} token - Word to correct
+     * @returns {string} Corrected word or original token
+     */
+    correctToken(token) {
+        if (!this.vocabList || token.length < 2) return token;
+
+        // Exact match - no correction needed
+        if (this.vocabulary.has(token)) return token;
+
+        let bestMatch = token;
+        let bestScore = 0;
+
+        // Dynamic threshold: stricter for short words, more lenient for longer ones
+        // Short words need higher similarity to avoid false corrections
+        const threshold = token.length <= 3 ? 0.90 : (token.length <= 5 ? 0.88 : 0.85);
+
+        for (const vocabWord of this.vocabList) {
+            // Do not turn natural-language words into short acronym keywords.
+            if (token.length > 3 && vocabWord.length <= 3) continue;
+            if (Math.abs(vocabWord.length - token.length) > 3) continue;
+
+            const score = this.jaroWinkler(token, vocabWord);
+            if (score > bestScore) {
+                bestScore = score;
+                bestMatch = vocabWord;
+            }
+        }
+
+        // Only return correction if similarity exceeds threshold
+        if (bestScore >= threshold) {
+            if (bestMatch !== token) {
+                console.log(`🔧 Corrected "${token}" → "${bestMatch}" (similarity: ${bestScore.toFixed(3)})`);
+            }
+            return bestMatch;
+        }
+
+        return token;
+    }
+
+    performSearch(userQuestion) {
+        const lowerQuestion = userQuestion.toLowerCase().trim();
+
+        // Normalize the question: remove punctuation, extra spaces
+        const normalizedQuestion = lowerQuestion.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+        const originalWords = normalizedQuestion.split(' ');
+        let words = [...originalWords];
+
+        // Apply fuzzy correction to each word before n-gram matching
+        if (this.vocabList) {
+            words = words.map(word => this.correctToken(word));
+            console.log('After fuzzy correction:', words.join(' '));
+        }
+
+        // Extract all n-grams (trigrams, bigrams, unigrams)
+        const nGrams = [];
+
+        // Trigrams (3-word phrases)
+        for (let i = 0; i <= words.length - 3; i++) {
+            nGrams.push({
+                text: words.slice(i, i + 3).join(' '),
+                length: 3
+            });
+        }
+
+        // Bigrams (2-word phrases)
+        for (let i = 0; i <= words.length - 2; i++) {
+            nGrams.push({
+                text: words.slice(i, i + 2).join(' '),
+                length: 2
+            });
+        }
+
+        // Unigrams (single words) - filter out very short words and common stop words
+        const stopWords = ['what', 'is', 'are', 'the', 'a', 'an', 'how', 'does', 'do', 'can', 'about', 'tell', 'me', 'explain', 'describe', 'show', 'give', 'anton', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'my', 'your', 'his', 'her', 'its', 'our', 'their', 'why', 'which', 'whom', 'whose', 'all', 'any', 'this', 'that', 'these', 'those'];
+        words.forEach(word => {
+            if (word.length >= 2 && !stopWords.includes(word)) {
+                nGrams.push({
+                    text: word,
+                    length: 1
+                });
+            }
+        });
+
+        // Allow one fuzzy token only when the rest of a multi-word keyword
+        // matches exactly. Phrase components never become standalone hits.
+        const nGramTexts = new Set(nGrams.map(ngram => ngram.text));
+        this.keywordMap.forEach((entries, keyword) => {
+            const keywordWords = keyword.split(' ');
+            if (keywordWords.length < 2 || keywordWords.length > originalWords.length) return;
+
+            for (let start = 0; start <= originalWords.length - keywordWords.length; start++) {
+                let fuzzyMatches = 0;
+                let isMatch = true;
+
+                for (let offset = 0; offset < keywordWords.length; offset++) {
+                    const questionWord = originalWords[start + offset];
+                    const keywordWord = keywordWords[offset];
+                    if (questionWord === keywordWord) continue;
+
+                    fuzzyMatches++;
+                    if (fuzzyMatches > 1 || this.jaroWinkler(questionWord, keywordWord) < 0.85) {
+                        isMatch = false;
+                        break;
+                    }
+                }
+
+                if (isMatch && fuzzyMatches === 1 && !nGramTexts.has(keyword)) {
+                    nGrams.push({ text: keyword, length: keywordWords.length });
+                    nGramTexts.add(keyword);
+                    break;
+                }
+            }
+        });
+
+        console.log('Extracted n-grams:', nGrams.map(ng => `"${ng.text}" (${ng.length})`));
+
+        // Match n-grams to keywords in the index. Each keyword may map to
+        // multiple documents; record a per-document match for each one.
+        const matchedKeywords = new Set();
+        const documentMatches = new Map(); // doc id -> {doc, category, link, matchedKeywords[]}
+
+        nGrams.forEach(ngram => {
+            const matches = this.keywordMap.get(ngram.text);
+            if (!matches) return;
+            matchedKeywords.add(ngram.text);
+
+            matches.forEach(match => {
+                const docId = match.document.id;
+                if (!documentMatches.has(docId)) {
+                    documentMatches.set(docId, {
+                        document: match.document,
+                        category: match.category,
+                        link: match.link,
+                        matchedKeywords: []
+                    });
+                }
+                const matchRecord = documentMatches.get(docId);
+                if (!matchRecord.matchedKeywords.includes(ngram.text)) {
+                    matchRecord.matchedKeywords.push(ngram.text);
+                }
+            });
+        });
+
+        // Filter out keywords that are subsets of longer matched keywords
+        // Example: if "large language model" is matched, remove "language model" and "language"
+        const filteredKeywords = new Set();
+        const sortedKeywords = Array.from(matchedKeywords).sort((a, b) => {
+            const aWords = a.split(' ').length;
+            const bWords = b.split(' ').length;
+            return bWords - aWords; // Longer phrases first
+        });
+
+        sortedKeywords.forEach(keyword => {
+            // Check if this keyword is a subset of any already-added keyword
+            let isSubset = false;
+            for (const existing of filteredKeywords) {
+                if (existing !== keyword && existing.includes(keyword)) {
+                    isSubset = true;
+                    break;
+                }
+            }
+            if (!isSubset) {
+                filteredKeywords.add(keyword);
+            }
+        });
+
+        console.log('Matched keywords (before filtering):', Array.from(matchedKeywords));
+        console.log('Filtered keywords (after removing subsets):', Array.from(filteredKeywords));
+
+        // Rebuild document matches using only filtered keywords
+        const finalDocumentMatches = [];
+        documentMatches.forEach((match, docId) => {
+            // Only include if at least one of its keywords survived filtering
+            const validKeywords = match.matchedKeywords.filter(kw => filteredKeywords.has(kw));
+            if (validKeywords.length > 0) {
+                finalDocumentMatches.push({
+                    ...match,
+                    matchedKeywords: validKeywords
+                });
+            }
+        });
+
+        console.log(`Found ${finalDocumentMatches.length} matching documents`);
+        if (finalDocumentMatches.length > 0) {
+            console.log('Matched documents:', finalDocumentMatches.map(m => ({
+                id: m.document.id,
+                title: m.document.title,
+                category: m.category,
+                keywords: m.matchedKeywords
+            })));
+        }
+
+        return {
+            matches: finalDocumentMatches,
+            matchedKeywords: Array.from(filteredKeywords)
+        };
+    }
+
+    searchContext(userQuestion) {
+        const { matches } = this.performSearch(userQuestion);
+
+        // If no matches, return empty context
+        if (matches.length === 0) {
+            this.elements.searchStatus.textContent = '🔍 No specific context found';
+            return { context: null, categories: [], links: [], documents: [], videos: [] };
+        }
+
+        // Rank documents by match quality (documents with longer/better keyword matches come first)
+        const rankedMatches = matches.sort((a, b) => {
+            // Calculate match quality score: sum of matched keyword lengths
+            const aScore = a.matchedKeywords.reduce((sum, kw) => sum + kw.split(' ').length, 0);
+            const bScore = b.matchedKeywords.reduce((sum, kw) => sum + kw.split(' ').length, 0);
+            return bScore - aScore; // Higher score first
+        });
+
+        // Build context from all matched documents - use full content, no summarization
+        const contextParts = rankedMatches.map(match => {
+            return `[${match.category} - ${match.document.title}]\n${match.document.content}`;
+        });
+
+        const categories = [...new Set(rankedMatches.map(m => m.category))];
+        const links = [...new Set(rankedMatches.map(m => m.link))];
+        const documents = rankedMatches.map(m => m.document);
+
+        // Extract videos from documents that have video_url
+        const videos = documents
+            .filter(doc => doc.video_url)
+            .map(doc => ({
+                video_url: doc.video_url,
+                title: doc.title
+            }));
+
+        this.elements.searchStatus.textContent = `🔍 Found context in: ${categories.join(', ')}`;
+
+        return {
+            context: contextParts.join('\n\n'),
+            categories: categories,
+            links: links,
+            documents: documents,
+            videos: videos
+        };
+    }
+
+    async sendMessage() {
+        const userMessage = this.elements.userInput.value.trim();
+
+        if (!userMessage || this.isGenerating) return;
+
+        // Reset stop flag
+        this.shouldStop = false;
+
+        // Store voice input flag before clearing
+        const usedVoice = this.usedVoiceInput;
+        this.usedVoiceInput = false;
+
+        // Clear input and reset height
+        this.elements.userInput.value = '';
+        this.elements.userInput.style.height = 'auto';
+
+        // Add user message to chat
+        this.addMessage('user', userMessage);
+
+        // Check if configured
+        if (!this.isConfigured) {
+            this.promptConfigureFoundry();
+            return;
+        }
+
+        // Disable input while processing and change button to stop
+        this.elements.userInput.disabled = true;
+        this.setStopButtonState();
+        this.elements.micBtn.disabled = true;
+
+        // Check if this is an initial greeting (only if no messages yet)
+        const messageCount = this.elements.chatMessages.querySelectorAll('.message').length;
+        if (messageCount <= 1) { // Only user's message is in chat
+            const greetingPattern = /^(hi|hello|hey|greetings|good morning|good afternoon|good evening)[\s!?]*$/i;
+            if (greetingPattern.test(userMessage)) {
+                // Respond with greeting without searching
+                const greetingResponse = "Hello, I'm Anton. I'm here to help you learn about AI concepts. What would you like to know?";
+                this.addMessage('assistant', greetingResponse);
+
+                // Synthesize speech if user used voice input
+                if (usedVoice) {
+                    await this.synthesizeSpeech(greetingResponse);
+                }
+
+                this.elements.userInput.disabled = false;
+                this.setSendButtonState();
+                if (this.recognition) this.elements.micBtn.disabled = false;
+                return;
+            }
+        }
+
+        // Search for relevant context
+        const searchResult = this.searchContext(userMessage);
+
+        // Generate response
+        await this.generateResponse(userMessage, searchResult, usedVoice);
+
+        // Re-enable input
+        this.elements.userInput.disabled = false;
+        // Only reset button if not speaking
+        if (!this.isSpeaking) {
+            this.setSendButtonState();
+        }
+        if (this.recognition) this.elements.micBtn.disabled = false;
+        this.elements.userInput.focus();
+    }
+
+    setStopButtonState() {
+        this.elements.sendBtn.disabled = false;
+        this.elements.sendBtn.title = 'Stop response';
+        this.elements.sendBtn.setAttribute('aria-label', 'Stop response');
+        const icon = this.elements.sendBtn.querySelector('.send-icon');
+        if (icon) {
+            icon.textContent = '■';
+            icon.style.color = 'white';
+        }
+    }
+
+    setSendButtonState() {
+        this.elements.sendBtn.disabled = false;
+        this.elements.sendBtn.title = 'Send message';
+        this.elements.sendBtn.setAttribute('aria-label', 'Send message');
+        const icon = this.elements.sendBtn.querySelector('.send-icon');
+        if (icon) {
+            icon.textContent = '▶';
+            icon.style.color = '';
+        }
+    }
+
+    stopResponse() {
+        this.shouldStop = true;
+        this.isGenerating = false;
+
+        // Stop any playing audio
+        if (this.currentAudio) {
+            this.currentAudio.pause();
+            this.currentAudio.currentTime = 0;
+            this.currentAudio = null;
+        }
+
+        // Resolve any hanging audio promise so generateResponse can unblock
+        if (this.currentAudioResolve) {
+            this.currentAudioResolve();
+            this.currentAudioResolve = null;
+        }
+
+        this.isSpeaking = false;
+
+        // Re-enable input immediately rather than waiting for the async chain to unwind
+        this.elements.userInput.disabled = false;
+        if (this.recognition) this.elements.micBtn.disabled = false;
+        this.elements.userInput.focus();
+
+        // Reset button state
+        this.setSendButtonState();
+    }
+
+
+    toggleSpeechRecognition() {
+        if (!this.recognition) {
+            alert('Microphone access is not supported in your browser.');
+            return;
+        }
+
+        if (this.isListening) {
+            this.stopListening();
+        } else {
+            this.usedVoiceInput = false; // Will be set to true in transcription if successful
+            this.startAzureSpeechRecognition();
+        }
+    }
+
+    addSystemMessage(message) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'system-message';
+        messageDiv.setAttribute('role', 'status');
+        messageDiv.setAttribute('aria-live', 'polite');
+        messageDiv.innerHTML = `<p>${message}</p>`;
+        this.elements.chatMessages.appendChild(messageDiv);
+        this.scrollToBottom();
+    }
+
+    addMessage(role, content, isTyping = false) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${role}-message`;
+        messageDiv.setAttribute('role', 'article');
+        messageDiv.setAttribute('aria-label', `Message from ${role === 'assistant' ? 'Anton' : 'You'}`);
+
+        if (role === 'assistant') {
+            messageDiv.innerHTML = `
+                <div class="avatar anton-avatar" aria-hidden="true">
+                    <img src="images/anton-icon.png" alt="Anton the AI assistant avatar" class="avatar-image">
+                </div>
+                <div class="message-content">
+                    <p class="message-author" aria-label="From Anton">Anton</p>
+                    <div class="message-text" ${isTyping ? 'aria-live="polite" aria-busy="true"' : ''}>
+                        ${isTyping
+                    ? '<span class="typing-indicator" aria-label="Anton is typing">●●●</span>'
+                    : this.escapeHtml(content)}
+                    </div>
+                </div>
+            `;
+        } else {
+            messageDiv.innerHTML = `
+                <div class="message-content">
+                    <p class="message-author" aria-label="From You">You</p>
+                    <div class="message-text">${this.escapeHtml(content)}</div>
+                </div>
+                <div class="avatar user-avatar" aria-hidden="true">👤</div>
+            `;
+        }
+
+        this.elements.chatMessages.appendChild(messageDiv);
+        this.scrollToBottom();
+
+        return messageDiv;
+    }
+
+    promptConfigureFoundry() {
+        this.addMessage('assistant', 'Hi!\nBefore we can chat, you need to configure your Foundry settings.\nUse the ⚙️ button above to enter your Foundry project endpoint, model deployment, and authentication credentials.');
+        this.elements.configBtn.focus();
+    }
+
+    async generateResponse(userMessage, searchResult, usedVoiceInput = false) {
+        const { context, categories, links, videos } = searchResult;
+
+        this.isGenerating = true;
+
+        // Show typing indicator
+        const responseMessage = this.addMessage('assistant', '', false);
+        const messageTextDiv = responseMessage.querySelector('.message-text');
+        messageTextDiv.innerHTML = '<span class="typing-indicator">●●●</span>';
+
+        try {
+            // Build prompt with context if available
+            let input = userMessage;
+            if (context) {
+                input = `Context:\n${context}\n\nQuestion: ${userMessage}`;
+            }
+
+            let response;
+            if (usedVoiceInput) {
+                // Voice input: wait for the full response, then animate typing and speak in parallel
+                response = await this.callFoundryAPI(input);
+            } else {
+                // Text input: stream the response and display it as it arrives
+                let firstDelta = true;
+                response = await this.callFoundryAPIStreaming(input, (fullText) => {
+                    if (this.shouldStop) return;
+                    if (firstDelta) {
+                        messageTextDiv.innerHTML = '';
+                        firstDelta = false;
+                    }
+                    messageTextDiv.innerHTML = `<p>${this.escapeHtml(fullText).replace(/\n/g, '<br>')}</p>`;
+                    this.scrollToBottom();
+                });
+                // User stopped before any text arrived — clean up silently
+                if (!response) {
+                    responseMessage.remove();
+                    return;
+                }
+            }
+
+            // Format the complete response
+            let formattedResponse = this.formatAssistantResponse(response);
+
+            // Add video links if available (before Learn more links)
+            if (videos && videos.length > 0) {
+                if (videos.length === 1) {
+                    formattedResponse += '<hr style="margin: 15px 0; border: none; border-top: 1px solid #e0e0e0;">';
+                    formattedResponse += `<p>Watch this video for more details: <a href="#" class="video-link" data-video-id="${videos[0].video_url}" data-video-title="${videos[0].title}">${videos[0].title}</a></p>`;
+                } else {
+                    formattedResponse += '<hr style="margin: 15px 0; border: none; border-top: 1px solid #e0e0e0;">';
+                    formattedResponse += '<p><strong>These videos might provide more information:</strong></p><ul>';
+                    videos.forEach(video => {
+                        formattedResponse += `<li><a href="#" class="video-link" data-video-id="${video.video_url}" data-video-title="${video.title}">${video.title}</a></li>`;
+                    });
+                    formattedResponse += '</ul>';
+                }
+            }
+
+            // Add learn more links
+            if (links && links.length > 0 && categories && categories.length > 0) {
+                const linkHtml = links.map((link, index) => {
+                    const categoryName = categories[Math.min(index, categories.length - 1)];
+                    return `<a href="${link}" target="_blank" rel="noopener noreferrer">${categoryName}</a>`;
+                }).join(' • ');
+                formattedResponse += `<hr style="margin: 15px 0; border: none; border-top: 1px solid #e0e0e0;"><p><strong>Learn more:</strong> ${linkHtml}</p>`;
+            }
+
+            if (usedVoiceInput) {
+                // Voice: animate typing and speak at the same time
+                const typingPromise = this.animateTyping(messageTextDiv, formattedResponse, 10);
+                const speechPromise = !this.shouldStop
+                    ? this.synthesizeSpeech(response)
+                    : Promise.resolve();
+                await Promise.all([typingPromise, speechPromise]);
+            } else {
+                // Text: replace the streamed raw text with the fully formatted response
+                messageTextDiv.innerHTML = formattedResponse;
+                this.scrollToBottom();
+            }
+
+            // Add event listeners to video links
+            if (videos && videos.length > 0) {
+                const videoLinks = messageTextDiv.querySelectorAll('.video-link');
+                videoLinks.forEach(link => {
+                    link.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        const videoId = link.dataset.videoId;
+                        const videoTitle = link.dataset.videoTitle;
+                        this.showVideoModal(videoId, videoTitle);
+                    });
+                });
+            }
+
+        } catch (error) {
+            console.error('Error generating response:', error);
+            responseMessage.remove();
+            const errorMessage = error.isContentFilter
+                ? error.message
+                : 'Sorry, I encountered an error: ' + error.message;
+            this.addMessage('assistant', errorMessage);
+        } finally {
+            this.isGenerating = false;
+
+            // Clear search status after response is complete
+            setTimeout(() => {
+                this.elements.searchStatus.textContent = '';
+            }, 2000);
+        }
+    }
+
+    async callFoundryAPI(input) {
+        const url = `${this.config.endpoint}/openai/v1/responses`;
+
+        const requestBody = {
+            model: this.config.deployment,
+            input: input,
+            instructions: this.systemPrompt,
+            store: true,
+            tools: [
+                {
+                    type: 'mcp',
+                    server_label: 'microsoft_learn',
+                    server_description: 'Microsoft Learn MCP server for searching and fetching Microsoft documentation, and provide links to relevant pages that you find.',
+                    server_url: 'https://learn.microsoft.com/api/mcp',
+                    require_approval: 'never'
+                },
+                { type: "web_search" }
+            ],
+            tool_choice: 'auto'
+        };
+
+        // Include previous response ID for conversation continuity
+        if (this.previousResponseId) {
+            requestBody.previous_response_id = this.previousResponseId;
+        }
+
+        // Build headers based on authentication mode
+        const headers = {
+            'Content-Type': 'application/json'
+        };
+
+        if (this.config.authMode === 'entra') {
+            // Use Bearer token for Entra ID authentication
+            const accessToken = await this.getAccessToken();
+            headers['Authorization'] = `Bearer ${accessToken}`;
+        } else {
+            // Use API key authentication
+            headers['api-key'] = this.config.apiKey;
+        }
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: headers,
+            body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            const contentFilterError = this.parseContentFilterError(errorText);
+
+            if (contentFilterError) {
+                throw contentFilterError;
+            }
+
+            throw new Error(`API request failed: ${response.status} - ${errorText}`);
+        }
+
+        const data = await response.json();
+
+        // Store the response ID for next turn
+        if (data.id) {
+            this.previousResponseId = data.id;
+        }
+
+        // Extract response text
+        let responseText = '';
+
+        if (data.output) {
+            if (Array.isArray(data.output)) {
+                responseText = data.output
+                    .map(item => {
+                        if (item.type === 'message' && item.content) {
+                            return Array.isArray(item.content)
+                                ? item.content.map(c => c.text || '').join('')
+                                : item.content;
+                        }
+                        if (item.type === 'text') {
+                            return item.text || '';
+                        }
+                        return '';
+                    })
+                    .join('');
+            } else if (typeof data.output === 'string') {
+                responseText = data.output;
+            }
+        } else if (data.choices && data.choices[0]) {
+            responseText = data.choices[0].message.content || '';
+        } else if (data.message) {
+            responseText = data.message.content || data.message;
+        }
+
+        if (!responseText) {
+            throw new Error('No response text found in API response');
+        }
+
+        return responseText;
+    }
+
+    async callFoundryAPIStreaming(input, onDelta) {
+        const url = `${this.config.endpoint}/openai/v1/responses`;
+
+        const requestBody = {
+            model: this.config.deployment,
+            input: input,
+            instructions: this.systemPrompt,
+            store: true,
+            stream: true,
+            tools: [
+                {
+                    type: 'mcp',
+                    server_label: 'microsoft_learn',
+                    server_description: 'Microsoft Learn MCP server for searching and fetching Microsoft documentation, and provide links to relevant pages that you find.',
+                    server_url: 'https://learn.microsoft.com/api/mcp',
+                    require_approval: 'never'
+                }
+            ],
+            tool_choice: 'auto'
+        };
+
+        if (this.previousResponseId) {
+            requestBody.previous_response_id = this.previousResponseId;
+        }
+
+        const headers = { 'Content-Type': 'application/json' };
+        if (this.config.authMode === 'entra') {
+            const accessToken = await this.getAccessToken();
+            headers['Authorization'] = `Bearer ${accessToken}`;
+        } else {
+            headers['api-key'] = this.config.apiKey;
+        }
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: headers,
+            body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            const contentFilterError = this.parseContentFilterError(errorText);
+            if (contentFilterError) throw contentFilterError;
+            throw new Error(`API request failed: ${response.status} - ${errorText}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let fullText = '';
+
+        try {
+            while (true) {
+                if (this.shouldStop) {
+                    reader.cancel();
+                    break;
+                }
+
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop(); // Keep any incomplete line in the buffer
+
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+                    const data = line.slice(6).trim();
+                    if (data === '[DONE]') continue;
+                    try {
+                        const event = JSON.parse(data);
+                        if (event.type === 'response.output_text.delta' && event.delta) {
+                            fullText += event.delta;
+                            onDelta(fullText);
+                        } else if (event.type === 'response.completed' && event.response?.id) {
+                            this.previousResponseId = event.response.id;
+                        }
+                    } catch (e) {
+                        // Ignore malformed SSE events
+                    }
+                }
+            }
+        } finally {
+            reader.releaseLock();
+        }
+
+        if (!fullText) {
+            if (this.shouldStop) return ''; // Stopped before any text arrived
+            throw new Error('No response text received from streaming API');
+        }
+
+        return fullText;
+    }
+
+    parseContentFilterError(errorText) {
+        try {
+            const parsedError = JSON.parse(errorText);
+            const errorDetails = parsedError?.error;
+            const contentFilters = errorDetails?.content_filters;
+            const hasBlockedContentFilter = Array.isArray(contentFilters)
+                && contentFilters.some(filter => filter?.blocked);
+            const mentionsPolicyBlock = typeof errorDetails?.message === 'string'
+                && errorDetails.message.includes('content management policy');
+
+            if (errorDetails?.code === 'content_filter' || hasBlockedContentFilter || mentionsPolicyBlock) {
+                const error = new Error(CONTENT_FILTER_MESSAGE);
+                error.isContentFilter = true;
+                return error;
+            }
+        } catch (parseError) {
+            return null;
+        }
+
+        return null;
+    }
+
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    formatAssistantResponse(text) {
+        // Handle fenced code blocks FIRST (before escaping HTML)
+        const codeBlocks = [];
+        const withCodeBlockPlaceholders = text.replace(
+            /```(\w+)?\n([\s\S]*?)```/g,
+            (match, language, code) => {
+                const placeholder = `§§CODE_BLOCK_${codeBlocks.length}§§`;
+                const escapedCode = this.escapeHtml(code);
+                const langClass = language ? ` class="language-${language}"` : '';
+                codeBlocks.push(`<pre${langClass}><code>${escapedCode}</code></pre>`);
+                return placeholder;
+            }
+        );
+
+        const escapedText = this.escapeHtml(withCodeBlockPlaceholders);
+
+        // Handle markdown links
+        const markdownLinks = [];
+        const withMarkdownPlaceholders = escapedText.replace(
+            /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+            (_, label, url) => {
+                const placeholder = `§§MARKDOWN_LINK_${markdownLinks.length}§§`;
+                markdownLinks.push(
+                    `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`
+                );
+                return placeholder;
+            }
+        );
+
+        // Apply basic markdown formatting
+        let formatted = withMarkdownPlaceholders;
+
+        // Bold: **text** or __text__
+        formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+        formatted = formatted.replace(/__(.+?)__/g, '<b>$1</b>');
+
+        // Italic: *text* or _text_ (but not in middle of words)
+        formatted = formatted.replace(/(?:^|[\s])\*([^\*\n]+?)\*(?=[\s]|$)/g, ' <i>$1</i>');
+        formatted = formatted.replace(/(?:^|[\s])_([^_\n]+?)_(?=[\s]|$)/g, ' <i>$1</i>');
+
+        // Inline code: `code` (prevent matching across lines)
+        formatted = formatted.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+
+        // Auto-link URLs
+        const withAutoLinkedUrls = formatted.replace(
+            /(^|[\s(>])((?:https?:\/\/)[^\s<)]+)/g,
+            (_, prefix, url) => {
+                const trailingPunctuationMatch = url.match(/[.,!?;:]+$/);
+                const trailingPunctuation = trailingPunctuationMatch ? trailingPunctuationMatch[0] : '';
+                const cleanUrl = trailingPunctuation ? url.slice(0, -trailingPunctuation.length) : url;
+
+                return `${prefix}<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer">${cleanUrl}</a>${trailingPunctuation}`;
+            }
+        );
+
+        // Restore markdown link placeholders
+        const withLinks = withAutoLinkedUrls.replace(
+            /§§MARKDOWN_LINK_(\d+)§§/g,
+            (_, index) => markdownLinks[Number(index)]
+        );
+
+        // Process lists (split by lines first)
+        const lines = withLinks.split('\n');
+        let inUnorderedList = false;
+        let inOrderedList = false;
+        let result = [];
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const trimmedLine = line.trimStart();
+
+            // Check if this line is a code block placeholder
+            if (/§§CODE_BLOCK_\d+§§/.test(line)) {
+                // Close any open lists
+                if (inUnorderedList) {
+                    result.push('</ul>');
+                    inUnorderedList = false;
+                }
+                if (inOrderedList) {
+                    result.push('</ol>');
+                    inOrderedList = false;
+                }
+                result.push(line);
+                continue;
+            }
+
+            // Unordered list items: - or * followed by space
+            if (/^[-*]\s+/.test(trimmedLine)) {
+                // Close ordered list if switching to unordered
+                if (inOrderedList) {
+                    result.push('</ol>');
+                    inOrderedList = false;
+                }
+                const content = trimmedLine.replace(/^[-*]\s+/, '');
+                if (!inUnorderedList) {
+                    result.push('<ul>');
+                    inUnorderedList = true;
+                }
+                result.push(`<li>${content}</li>`);
+            }
+            // Ordered list items: number. followed by space
+            else if (/^\d+\.\s+/.test(trimmedLine)) {
+                // Close unordered list if switching to ordered
+                if (inUnorderedList) {
+                    result.push('</ul>');
+                    inUnorderedList = false;
+                }
+                const content = trimmedLine.replace(/^\d+\.\s+/, '');
+                if (!inOrderedList) {
+                    result.push('<ol>');
+                    inOrderedList = true;
+                }
+                result.push(`<li>${content}</li>`);
+            }
+            // Empty line - don't close lists, just skip
+            else if (line.trim() === '') {
+                // Skip empty lines while in a list
+                if (!inUnorderedList && !inOrderedList) {
+                    if (result.length > 0 && !result[result.length - 1].endsWith('<br>')) {
+                        result.push('<br>');
+                    }
+                }
+            }
+            // Regular line with content
+            else {
+                // Close any open lists
+                if (inUnorderedList) {
+                    result.push('</ul>');
+                    inUnorderedList = false;
+                }
+                if (inOrderedList) {
+                    result.push('</ol>');
+                    inOrderedList = false;
+                }
+
+                // Add line with <br>
+                result.push(line + '<br>');
+            }
+        }
+
+        // Close any remaining open lists
+        if (inUnorderedList) {
+            result.push('</ul>');
+        }
+        if (inOrderedList) {
+            result.push('</ol>');
+        }
+
+        // Join the result
+        let finalText = result.join('');
+
+        // Restore code block placeholders
+        finalText = finalText.replace(
+            /§§CODE_BLOCK_(\d+)§§/g,
+            (_, index) => codeBlocks[Number(index)]
+        );
+
+        // Wrap in paragraph
+        return `<p>${finalText}</p>`;
+    }
+
+    async animateTyping(element, htmlContent, speed = 10) {
+        // Start with empty content
+        element.innerHTML = '';
+
+        // Split content into characters for typing effect
+        const chars = htmlContent.split('');
+        let currentHtml = '';
+
+        for (let i = 0; i < chars.length; i++) {
+            // Check if we should stop
+            if (this.shouldStop) {
+                // Display remaining content immediately
+                element.innerHTML = htmlContent;
+                this.scrollToBottom();
+                return false; // Return false to indicate interrupted
+            }
+
+            currentHtml += chars[i];
+
+            // Update the element with current content
+            // Use a temporary div to parse HTML and get valid structure
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = currentHtml;
+            element.innerHTML = tempDiv.innerHTML;
+
+            this.scrollToBottom();
+
+            // Small delay for typing effect (speed in milliseconds)
+            await new Promise(resolve => setTimeout(resolve, speed));
+        }
+
+        // Ensure final content is complete and properly formatted
+        element.innerHTML = htmlContent;
+        this.scrollToBottom();
+        return true; // Return true to indicate completed normally
+    }
+
+    scrollToBottom() {
+        this.elements.chatMessages.scrollTop = this.elements.chatMessages.scrollHeight;
+    }
+
+    playRandomResponseAudio() {
+        // Randomly select one of the 7 audio files
+        const audioNumber = Math.floor(Math.random() * 7) + 1;
+        const audioPath = `audio/response_${audioNumber}.wav`;
+
+        const audio = new Audio(audioPath);
+        audio.play().catch(error => {
+            console.error('Error playing audio:', error);
+        });
+    }
+
+    async synthesizeSpeech(text) {
+        if (this.shouldStop) {
+            return;
+        }
+
+        this.isSpeaking = true;
+
+        try {
+            // Strip HTML tags and convert to plain text using DOMParser (safer than innerHTML)
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(text, 'text/html');
+            let plainText = doc.body.textContent || '';
+
+            if (!plainText.trim()) {
+                this.isSpeaking = false;
+                return;
+            }
+
+            // Replace URLs with speakable format
+            // First, handle markdown-style URLs [text](url) - remove the duplicates
+            plainText = plainText.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$2');
+
+            // Then replace all URLs with speakable format
+            plainText = plainText.replace(/https?:\/\/(?:www\.)?[^\s]+/gi, function (url) {
+                // Remove protocol
+                let cleaned = url.replace(/^https?:\/\//i, '');
+                // Remove www. if present
+                cleaned = cleaned.replace(/^www\./i, '');
+                // Remove trailing period (if URL ends a sentence)
+                cleaned = cleaned.replace(/\.$/, '');
+                // Replace dots with " dot "
+                cleaned = cleaned.replace(/\./g, ' dot ');
+                // Replace slashes with " slash "
+                cleaned = cleaned.replace(/\//g, ' slash ');
+                // Replace hyphens with spaces
+                cleaned = cleaned.replace(/-/g, ' ');
+                return cleaned;
+            });
+            plainText = plainText.replace(/www\.[^\s]+/gi, function (url) {
+                // Remove www. if present
+                let cleaned = url.replace(/^www\./i, '');
+                // Remove trailing period (if URL ends a sentence)
+                cleaned = cleaned.replace(/\.$/, '');
+                // Replace dots with " dot "
+                cleaned = cleaned.replace(/\./g, ' dot ');
+                // Replace slashes with " slash "
+                cleaned = cleaned.replace(/\//g, ' slash ');
+                // Replace hyphens with spaces
+                cleaned = cleaned.replace(/-/g, ' ');
+                return cleaned;
+            });
+
+            const speechEndpoint = this.getSpeechEndpointBase();
+            const url = `${speechEndpoint}/tts/cognitiveservices/v1`;
+
+            // Build SSML with Christopher Multilingual voice
+            const ssml = `<speak version="1.0" xml:lang="en-US">
+                <voice xml:lang="en-US" xml:gender="Male" name="en-US-ChristopherMultilingualNeural">
+                    ${this.escapeXml(plainText)}
+                </voice>
+                </speak>`;
+
+            // Build headers based on authentication mode
+            const headers = {
+                'Content-Type': 'application/ssml+xml',
+                'X-Microsoft-OutputFormat': 'audio-16khz-128kbitrate-mono-mp3'
+            };
+
+            if (this.config.authMode === 'entra') {
+                const accessToken = await this.getAccessToken();
+                headers['Authorization'] = `Bearer ${accessToken}`;
+            } else {
+                headers['Ocp-Apim-Subscription-Key'] = this.config.apiKey;
+            }
+
+            let response;
+            try {
+                response = await fetch(url, {
+                    method: 'POST',
+                    headers: headers,
+                    body: ssml
+                });
+            } catch (fetchError) {
+                throw new Error(`TTS request failed: ${fetchError.message}`);
+            }
+
+            if (!response.ok) {
+                let errorText = '';
+                try {
+                    errorText = await response.text();
+                } catch (e) {
+                    errorText = '(could not read error response)';
+                }
+
+                console.error('TTS request failed');
+                console.error('  URL:', url);
+                console.error('  Status:', response.status);
+                console.error('  Status Text:', response.statusText);
+                console.error('  Error:', errorText || '(empty error response)');
+                console.error('  Response Headers:');
+                for (const [key, value] of response.headers.entries()) {
+                    console.error(`    ${key}: ${value}`);
+                }
+                throw new Error(`TTS failed: ${response.status} - ${errorText || 'Unknown error'}`);
+            }
+
+            const audioBlob = await response.blob();
+            const audioUrl = URL.createObjectURL(audioBlob);
+            const audio = new Audio(audioUrl);
+
+            // Store reference to current audio
+            this.currentAudio = audio;
+
+            // Check again if we should stop before playing
+            if (this.shouldStop) {
+                URL.revokeObjectURL(audioUrl);
+                this.currentAudio = null;
+                this.isSpeaking = false;
+                this.setSendButtonState();
+                return;
+            }
+
+            // Play the audio and wait for it to finish
+            await new Promise((resolve, reject) => {
+                this.currentAudioResolve = resolve;
+
+                audio.onended = () => {
+                    URL.revokeObjectURL(audioUrl);
+                    this.currentAudio = null;
+                    this.currentAudioResolve = null;
+                    this.isSpeaking = false;
+                    this.setSendButtonState();
+                    resolve();
+                };
+
+                audio.onerror = (error) => {
+                    URL.revokeObjectURL(audioUrl);
+                    this.currentAudio = null;
+                    this.currentAudioResolve = null;
+                    this.isSpeaking = false;
+                    this.setSendButtonState();
+                    reject(error);
+                };
+
+                audio.play().catch(error => {
+                    console.error('Error playing synthesized speech:', error);
+                    URL.revokeObjectURL(audioUrl);
+                    this.currentAudio = null;
+                    this.currentAudioResolve = null;
+                    this.isSpeaking = false;
+                    this.setSendButtonState();
+                    reject(error);
+                });
+            });
+
+        } catch (error) {
+            console.error('Error synthesizing speech:', error);
+            this.currentAudio = null;
+            this.isSpeaking = false;
+            this.setSendButtonState();
+        }
+    }
+
+    escapeXml(text) {
+        return text.replace(/[<>&'"]/g, (char) => {
+            switch (char) {
+                case '<': return '&lt;';
+                case '>': return '&gt;';
+                case '&': return '&amp;';
+                case "'": return '&apos;';
+                case '"': return '&quot;';
+                default: return char;
+            }
+        });
+    }
+
+    restartConversation() {
+        if (confirm('Are you sure you want to start a new conversation? This will clear the chat history.')) {
+            this.previousResponseId = null;
+
+            // Clear chat messages (keep welcome message)
+            const messages = this.elements.chatMessages.querySelectorAll('.message:not(.welcome-message)');
+            messages.forEach(msg => msg.remove());
+
+            // Clear search status
+            this.elements.searchStatus.textContent = '';
+
+            console.log('Conversation restarted');
+        }
+    }
+
+    checkConfigChanges() {
+        if (!this.initialConfigState) {
+            return; // Modal not open or initial state not captured
+        }
+
+        const currentState = {
+            endpoint: this.elements.foundryEndpoint.value.trim(),
+            deployment: this.elements.foundryDeployment.value.trim(),
+            authMode: this.elements.authModeToggle.checked ? 'entra' : 'key',
+            apiKey: this.elements.foundryKey.value.trim(),
+            clientId: this.elements.entraClientId.value.trim(),
+            tenantId: this.elements.entraTenantId.value.trim()
+        };
+
+        // Check if anything has changed
+        const hasChanges =
+            currentState.endpoint !== this.initialConfigState.endpoint ||
+            currentState.deployment !== this.initialConfigState.deployment ||
+            currentState.authMode !== this.initialConfigState.authMode ||
+            currentState.apiKey !== this.initialConfigState.apiKey ||
+            currentState.clientId !== this.initialConfigState.clientId ||
+            currentState.tenantId !== this.initialConfigState.tenantId;
+
+        this.elements.configSave.disabled = !hasChanges;
+    }
+
+    showConfigModal() {
+        this.elements.configModal.style.display = 'flex';
+        this.currentModal = this.elements.configModal;
+        this.elements.configModal.setAttribute('aria-hidden', 'false');
+        // Clear any previous status
+        this.elements.configStatus.textContent = '';
+        this.elements.configStatus.className = 'config-status';
+
+        // Capture initial state for change detection
+        this.initialConfigState = {
+            endpoint: this.elements.foundryEndpoint.value.trim(),
+            deployment: this.elements.foundryDeployment.value.trim(),
+            authMode: this.elements.authModeToggle.checked ? 'entra' : 'key',
+            apiKey: this.elements.foundryKey.value.trim(),
+            clientId: this.elements.entraClientId.value.trim(),
+            tenantId: this.elements.entraTenantId.value.trim()
+        };
+
+        // Disable Save button initially (no changes yet)
+        this.elements.configSave.disabled = true;
+
+        // Update sign-in button state and help button visibility if in Entra ID mode
+        if (this.elements.authModeToggle.checked) {
+            this.updateSignInButtonState();
+            this.elements.entraHelpBtn.style.display = 'inline-flex';
+        } else {
+            this.elements.entraHelpBtn.style.display = 'none';
+        }
+
+        // Set focus to first input
+        setTimeout(() => {
+            this.elements.foundryEndpoint.focus();
+            this.setupModalFocusTrap(this.elements.configModal);
+        }, 100);
+    }
+
+    hideConfigModal() {
+        this.elements.configModal.style.display = 'none';
+        this.elements.configModal.setAttribute('aria-hidden', 'true');
+        this.removeModalFocusTrap();
+        this.currentModal = null;
+
+        // Clear initial config state
+        this.initialConfigState = null;
+
+        // Restore focus
+        if (this.lastFocusedElement) {
+            this.lastFocusedElement.focus();
+        } else {
+            this.elements.userInput.focus();
+        }
+    }
+
+    showAboutModal() {
+        this.elements.aboutModal.style.display = 'flex';
+        this.currentModal = this.elements.aboutModal;
+        // Store the previously focused element
+        this.lastFocusedElement = document.activeElement;
+        // Announce modal to screen readers
+        this.elements.aboutModal.setAttribute('aria-hidden', 'false');
+        // Set focus to close button
+        setTimeout(() => {
+            this.elements.aboutModalClose.focus();
+            this.setupModalFocusTrap(this.elements.aboutModal);
+        }, 100);
+    }
+
+    hideAboutModal() {
+        this.elements.aboutModal.style.display = 'none';
+        this.elements.aboutModal.setAttribute('aria-hidden', 'true');
+        this.removeModalFocusTrap();
+        this.currentModal = null;
+        // Restore focus to the element that opened the modal
+        if (this.lastFocusedElement) {
+            this.lastFocusedElement.focus();
+        } else {
+            this.elements.userInput.focus();
+        }
+    }
+
+    showEntraHelpModal() {
+        this.elements.entraHelpModal.style.display = 'flex';
+        this.currentModal = this.elements.entraHelpModal;
+        // Store the previously focused element
+        this.lastFocusedElement = document.activeElement;
+        // Announce modal to screen readers
+        this.elements.entraHelpModal.setAttribute('aria-hidden', 'false');
+        // Set focus to close button
+        setTimeout(() => {
+            this.elements.entraHelpModalClose.focus();
+            this.setupModalFocusTrap(this.elements.entraHelpModal);
+        }, 100);
+    }
+
+    hideEntraHelpModal() {
+        this.elements.entraHelpModal.style.display = 'none';
+        this.elements.entraHelpModal.setAttribute('aria-hidden', 'true');
+        this.removeModalFocusTrap();
+        this.currentModal = null;
+        // Restore focus to the element that opened the modal
+        if (this.lastFocusedElement) {
+            this.lastFocusedElement.focus();
+        } else {
+            this.elements.userInput.focus();
+        }
+    }
+
+    showVideoModal(videoId, videoTitle) {
+        console.log('showVideoModal called with:', { videoId, videoTitle });
+
+        // Handle cases where videoId might be a full URL
+        let actualVideoId = videoId;
+        try {
+            const parsedUrl = new URL(videoId);
+            const host = parsedUrl.hostname.toLowerCase();
+            const isTrustedSynthesiaHost = host === 'synthesia.io' || host.endsWith('.synthesia.io');
+
+            if (isTrustedSynthesiaHost) {
+                // Extract just the ID from the URL path
+                const match = parsedUrl.pathname.match(/([0-9a-f-]{36})$/i);
+                if (match) {
+                    actualVideoId = match[1];
+                }
+            }
+        } catch (e) {
+            // Not a URL; assume videoId is already a raw ID
+        }
+
+        const videoUrl = `https://share.synthesia.io/embeds/videos/${actualVideoId}`;
+        console.log('Video URL:', videoUrl);
+
+        // Set the video title
+        this.elements.videoModalTitle.textContent = videoTitle || 'Video';
+
+        // Set the iframe source
+        this.elements.videoIframe.src = videoUrl;
+        this.elements.videoIframe.title = videoTitle || 'Video';
+
+        // Show the modal
+        this.elements.videoModal.style.display = 'flex';
+        this.currentModal = this.elements.videoModal;
+
+        // Store the previously focused element
+        this.lastFocusedElement = document.activeElement;
+
+        // Announce modal to screen readers
+        this.elements.videoModal.setAttribute('aria-hidden', 'false');
+
+        // Set focus to close button
+        setTimeout(() => {
+            this.elements.videoModalClose.focus();
+            this.setupModalFocusTrap(this.elements.videoModal);
+        }, 100);
+
+        console.log('Video modal displayed');
+    }
+
+    hideVideoModal() {
+        // Clear the iframe source to stop video playback
+        this.elements.videoIframe.src = '';
+
+        this.elements.videoModal.style.display = 'none';
+        this.elements.videoModal.setAttribute('aria-hidden', 'true');
+        this.removeModalFocusTrap();
+        this.currentModal = null;
+
+        // Restore focus to the element that opened the modal
+        if (this.lastFocusedElement) {
+            this.lastFocusedElement.focus();
+        } else {
+            this.elements.userInput.focus();
+        }
+    }
+
+    setupModalFocusTrap(modalElement) {
+        // Get all focusable elements within the modal
+        const focusableElements = modalElement.querySelectorAll(
+            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        );
+
+        if (focusableElements.length === 0) return;
+
+        const firstElement = focusableElements[0];
+        const lastElement = focusableElements[focusableElements.length - 1];
+
+        // Store the trap handler for cleanup
+        this.modalFocusTrapHandler = (e) => {
+            if (e.key !== 'Tab') return;
+
+            if (e.shiftKey) {
+                // Shift+Tab - going backwards
+                if (document.activeElement === firstElement) {
+                    e.preventDefault();
+                    lastElement.focus();
+                }
+            } else {
+                // Tab - going forwards
+                if (document.activeElement === lastElement) {
+                    e.preventDefault();
+                    firstElement.focus();
+                }
+            }
+        };
+
+        modalElement.addEventListener('keydown', this.modalFocusTrapHandler);
+    }
+
+    removeModalFocusTrap() {
+        if (this.currentModal && this.modalFocusTrapHandler) {
+            this.currentModal.removeEventListener('keydown', this.modalFocusTrapHandler);
+            this.modalFocusTrapHandler = null;
+        }
+    }
+}
+
+// Make instance globally accessible for onclick handler
+window.askAnton = null;
+
+// Initialize the app when DOM is loaded
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        window.askAnton = new AskAnton();
+    });
+} else {
+    window.askAnton = new AskAnton();
+}

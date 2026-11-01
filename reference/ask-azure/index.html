@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ask Anton - AI Learning Assistant</title>
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎓</text></svg>">
+    <link rel="stylesheet" href="styles.css">
+    <!-- MSAL.js library for Entra ID authentication -->
+    <script src="https://alcdn.msauth.net/browser/2.38.1/js/msal-browser.min.js"></script>
+</head>
+
+<body>
+    <!-- Skip to main content link for keyboard navigation -->
+    <a href="#chat-messages" class="skip-link">Skip to main chat content</a>
+
+    <div class="container" role="main" aria-label="Ask Anton Chat Application">
+        <header role="banner">
+            <h1 id="app-title">🎓 Ask Anton</h1>
+            <p class="subtitle" id="app-subtitle">An AI assistant to support your learning journey</p>
+        </header>
+
+        <div class="chat-wrapper">
+            <!-- Chat Interface -->
+            <div class="chat-container" id="chat-container" role="region" aria-labelledby="chat-title">
+                <div class="chat-header" role="banner">
+                    <div class="header-content">
+                        <h2 id="chat-title">💬 Chat with Anton</h2>
+                        <div class="header-buttons" role="toolbar" aria-label="Chat controls">
+                            <button class="about-btn" id="about-btn" title="About this app"
+                                aria-label="Learn about Ask Anton">
+                                ℹ️ About
+                            </button>
+                            <a href="https://forms.office.com/r/fC0ndfBQeK" target="_blank" rel="noopener noreferrer"
+                                class="about-btn" style="text-decoration: none;" title="Rate your experience"
+                                aria-label="Rate your experience">
+                                🤍
+                            </a>
+                            <button class="config-btn" id="config-btn" title="Configure Microsoft Foundry connection"
+                                aria-label="Configure Microsoft Foundry connection">
+                                ⚙️ Configure
+                            </button>
+                            <button class="restart-btn" id="restart-btn" title="Restart conversation"
+                                aria-label="Start a new chat conversation">
+                                🔄 New Chat
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="chat-messages" id="chat-messages" role="log" aria-live="polite" aria-relevant="additions"
+                    aria-label="Chat conversation">
+                    <div class="welcome-message" role="article" aria-label="Welcome message from Anton">
+                        <div class="avatar anton-avatar" aria-hidden="true">
+                            <img src="images/anton-icon.png" alt="Anton the AI assistant avatar" class="avatar-image">
+                        </div>
+                        <div class="message-content">
+                            <p class="message-author">Anton</p>
+                            <p>Hi! I'm Anton, a basic example of an AI assistant to accompany AI training materials.<br>
+                                I'm <u>not</u> a supported Microsoft product or service, or an official component of
+                                Microsoft Learn or AI Skills Navigator; but ask me about AI concepts, and I'll do my
+                                best to provide helpful explanations.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="chat-input-area" role="form" aria-label="Message input form">
+                    <div class="input-wrapper">
+                        <button id="mic-btn" class="mic-btn" title="Voice input" aria-label="Voice input" type="button">
+                            <span class="mic-icon" aria-hidden="true">&#127897;</span>
+                        </button>
+                        <label for="user-input" class="visually-hidden">Your question about AI topics</label>
+                        <textarea id="user-input" placeholder="Ask a question about AI topics..." rows="1"
+                            aria-label="Type your question about AI topics here"
+                            aria-describedby="chat-description search-status" aria-required="false"></textarea>
+                        <button id="send-btn" class="send-btn" title="Send message" aria-label="Send message"
+                            type="submit">
+                            <span class="send-icon" aria-hidden="true">▶</span>
+                        </button>
+                    </div>
+                    <div class="example-questions">
+                        <p class="example-label" id="example-label">Try asking:</p>
+                        <div class="example-buttons" role="region" aria-labelledby="example-label">
+                            <button class="example-btn" data-question="How do LLMs work?" aria-label="Ask about LLMs">
+                                How do LLMs work?
+                            </button>
+                            <button class="example-btn" data-question="What's an agent?" aria-label="Ask about agents">
+                                What's an agent?
+                            </button>
+                            <button class="example-btn" data-question="Explain RAG" aria-label="Ask about RAG">
+                                Explain RAG
+                            </button>
+                            <button class="example-btn" data-question="What's computer vision?"
+                                aria-label="Ask about computer vision">
+                                What's computer vision?
+                            </button>
+                            <button class="example-btn" data-question="Tell me about AI speech"
+                                aria-label="Ask about AI speech">
+                                Tell me about AI speech
+                            </button>
+                            <button class="example-btn" data-question="What is Microsoft Foundry?"
+                                aria-label="Ask about Microsoft Foundry">
+                                What is Microsoft Foundry?
+                            </button>
+                            <button class="example-btn" data-question="How do I create a new project in Foundry?"
+                                aria-label="Ask about creating a new project in Foundry">
+                                How do I create a new project in Foundry?
+                            </button>
+                            <button class="example-btn" data-question="Show me docs for Voice Live"
+                                aria-label="Ask about Voice Live documentation">
+                                Show me docs for Voice Live
+                            </button>
+                        </div>
+                    </div>
+                    <div class="input-info">
+                        <span id="search-status" class="search-status" role="status" aria-live="polite"
+                            aria-atomic="true"></span>
+                    </div>
+                    <div class="disclaimer">
+                        <p>AI-generated content may be incorrect</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer role="contentinfo">
+            <p>Powered by Microsoft Foundry</p>
+        </footer>
+    </div>
+
+    <!-- About App Modal -->
+    <div id="about-modal" class="modal" role="dialog" aria-labelledby="about-modal-title" aria-modal="true"
+        aria-describedby="about-modal-description" style="display: none;">
+        <div class="modal-overlay" aria-hidden="true"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="about-modal-title">🎓 About Ask Anton</h2>
+                <button class="modal-close" id="about-modal-close" aria-label="Close about dialog" title="Close"
+                    type="button">×</button>
+            </div>
+            <div class="modal-body" id="about-modal-description">
+                <p><strong>Ask Anton</strong> is a sample AI agent for educational purposes. It is not a supported
+                    Microsoft product or service, and is provided as-is with no warranty of any kind.</p>
+                <p>📋 <a href="https://microsoftlearning.github.io/ai-apps/" target="_blank"
+                        rel="noopener noreferrer">Important details and AI transparency notes (opens in new window)</a>
+                </p>
+                <h3>Features</h3>
+                <ul>
+                    <li><strong>Intelligent Search:</strong> Searches through a curated knowledge base to find relevant
+                        AI concepts</li>
+                    <li><strong>AI-Powered Responses:</strong> Uses Microsoft Foundry models to generate clear,
+                        contextual explanations</li>
+                    <li><strong>Voice Input:</strong> Ask questions using your voice for a hands-free experience</li>
+                </ul>
+
+                <h3>How It Works</h3>
+                <p>Ask Anton combines semantic search with Microsoft Foundry AI models to provide accurate, educational
+                    responses about AI concepts. Your questions are sent to Microsoft Foundry along with relevant
+                    context from the knowledge base.</p>
+
+                <h3>Getting Started</h3>
+                <p>Click the ⚙️ Configure button to set up your Microsoft Foundry connection (endpoint, API key, and
+                    deployment). Then try asking questions like "What is machine learning?" or "Explain artificial
+                    intelligence".</p>
+                <div style="margin: 18px 0 0 0;">
+                    <a href="https://forms.office.com/r/fC0ndfBQeK" target="_blank" rel="noopener noreferrer"
+                        class="about-btn"
+                        style="text-decoration: none; display: inline-block; padding: 0; font-size: 1rem; font-weight: 500; color: #444; background: none; border: none; box-shadow: none; margin: 0;"
+                        title="Rate your experience" aria-label="Rate your experience">🤍 Rate your experience</a>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn" id="about-modal-ok" aria-label="Close about dialog"
+                    type="button">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Foundry Configuration Modal -->
+    <div id="config-modal" class="modal" role="dialog" aria-labelledby="config-modal-title" aria-modal="true"
+        aria-describedby="config-modal-description" style="display: none;">
+        <div class="modal-overlay" aria-hidden="true"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="config-modal-title">⚙️ Microsoft Foundry Configuration</h2>
+            </div>
+            <div class="modal-body" id="config-modal-description">
+                <p class="config-note">An Azure subscription is required for this app. If you don't have one, try the <a
+                        href="https://aka.ms/ask-anton" target="_blank" rel="noopener noreferrer">browser-based version
+                        of Ask Anton</a>.</p>
+                <p class="config-intro">Start by creating a project and deploying a model in the (new) <a
+                        href="https://ai.azure.com" target="_blank" rel="noopener noreferrer">Foundry portal</a> (see
+                    the <a
+                        href="https://learn.microsoft.com/azure/foundry/tutorials/quickstart-create-foundry-resources?tabs=portal"
+                        target="_blank" rel="noopener noreferrer">Foundry Quickstart Guide</a> for details.) Then enter
+                    your project details below:</p>
+                <div class="config-form">
+                    <div class="form-group">
+                        <label for="foundry-endpoint">Project endpoint:</label>
+                        <input type="url" id="foundry-endpoint"
+                            placeholder="https://your-resource.services.ai.azure.com" autocomplete="off"
+                            aria-describedby="endpoint-help">
+                        <small id="endpoint-help" class="form-help">Your Foundry project endpoint</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="foundry-deployment">Model deployment: (<i>gpt-5-mini recommended</i>)</label>
+                        <input type="text" id="foundry-deployment" placeholder="e.g., gpt-5-mini" autocomplete="off"
+                            aria-describedby="deployment-help">
+                        <small id="deployment-help" class="form-help">Your model deployment name</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="auth-mode-toggle">Authentication Mode:</label>
+                        <div class="toggle-container">
+                            <span class="toggle-label" id="auth-mode-label-key">Key</span>
+                            <label class="toggle-switch" for="auth-mode-toggle" aria-label="Switch authentication mode">
+                                <input type="checkbox" id="auth-mode-toggle" role="switch" aria-checked="false">
+                                <span class="toggle-slider"></span>
+                            </label>
+                            <span class="toggle-label" id="auth-mode-label-entra">Entra ID</span>
+                            <button class="entra-help-btn" id="entra-help-btn" title="Entra ID app configuration help"
+                                aria-label="Get help with Entra ID app configuration" type="button"
+                                style="display: none;">
+                                ?
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Key Authentication Fields -->
+                    <div id="key-auth-fields">
+                        <div class="form-group">
+                            <label for="foundry-key">API Key:</label>
+                            <input type="password" id="foundry-key" placeholder="Enter your API key" autocomplete="off"
+                                aria-describedby="key-help">
+                            <small id="key-help" class="form-help">Your Foundry project API key</small>
+                        </div>
+                    </div>
+
+                    <!-- Entra ID Authentication Fields -->
+                    <div id="entra-auth-fields" style="display: none;">
+                        <div class="form-group">
+                            <label for="entra-client-id">Application (client) ID:</label>
+                            <input type="text" id="entra-client-id" placeholder="Enter your app client ID"
+                                autocomplete="off" aria-describedby="client-help">
+                            <small id="client-help" class="form-help">Your Entra ID application (client) ID</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="entra-tenant-id">Directory (tenant) ID:</label>
+                            <input type="text" id="entra-tenant-id" placeholder="Enter your tenant ID"
+                                autocomplete="off" aria-describedby="tenant-help">
+                            <small id="tenant-help" class="form-help">Your Entra ID directory (tenant) ID</small>
+                        </div>
+
+                        <div class="form-group">
+                            <button class="modal-btn modal-btn-primary" id="entra-signin-btn" disabled
+                                aria-label="Sign in with Entra ID" type="button">Sign In</button>
+                            <small id="signin-status" class="form-help"></small>
+                        </div>
+                    </div>
+
+                    <div class="config-status" id="config-status" role="status" aria-live="polite"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn modal-btn-secondary" id="config-cancel" aria-label="Cancel configuration"
+                    type="button">Cancel</button>
+                <button class="modal-btn modal-btn-primary" id="config-save" aria-label="Save configuration"
+                    type="button">Save Configuration</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Entra ID Help Modal -->
+    <div id="entra-help-modal" class="modal" role="dialog" aria-labelledby="entra-help-modal-title" aria-modal="true"
+        aria-describedby="entra-help-modal-description" style="display: none;">
+        <div class="modal-overlay" aria-hidden="true"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="entra-help-modal-title">🔑 Entra ID App Configuration</h2>
+                <button class="modal-close" id="entra-help-modal-close" aria-label="Close help dialog" title="Close"
+                    type="button">×</button>
+            </div>
+            <div class="modal-body" id="entra-help-modal-description">
+                <h3>Setting up Entra ID Authentication</h3>
+                <p>To use Entra ID authentication, you need to register an application in the Azure Portal and configure
+                    the appropriate permissions.</p>
+
+                <h4>Step 1: Register Your Application</h4>
+                <ol>
+                    <li>Go to <a href="https://portal.azure.com" target="_blank" rel="noopener noreferrer">Azure
+                            Portal</a></li>
+                    <li>Navigate to <strong>Microsoft Entra ID</strong> &rarr; <strong>App registrations</strong></li>
+                    <li>Click <strong>+ New registration</strong></li>
+                    <li>Enter a name (e.g., "Ask Anton")</li>
+                    <li>Select <strong>Accounts in this organizational directory only</strong></li>
+                    <li>Click <strong>Register</strong></li>
+                </ol>
+
+                <h4>Step 2: Configure Authentication</h4>
+                <ol>
+                    <li>In your app registration, click <strong>Authentication</strong> in the left menu</li>
+                    <li>Click <strong>Add Redirect URI</strong> &rarr; <strong>Single-page application</strong></li>
+                    <li>Add Redirect URI: <code>https://microsoftlearning.github.io/ai-apps/ask-azure/</code></li>
+                    <li>Under <strong>Implicit grant and hybrid flows</strong>, check:
+                        <ul>
+                            <li>☑ Access tokens</li>
+                            <li>☑ ID tokens</li>
+                        </ul>
+                    </li>
+                    <li>Click <strong>Configure</strong></li>
+                </ol>
+
+                <h4>Step 3: Add API Permissions</h4>
+                <ol>
+                    <li>Click <strong>API permissions</strong> in the left menu</li>
+                    <li>Click <strong>+ Add a permission</strong></li>
+                    <li>Select <strong>APIs my organization uses</strong></li>
+                    <li>Search for <strong>"Microsoft Cognitive Services"</strong> or use Application ID:
+                        <code>7d312290-28c8-473c-a0ed-8e53749b6d6d</code>
+                    </li>
+                    <li>Select <strong>Azure Cognitive Services</strong></li>
+                    <li>Choose <strong>Delegated permissions</strong></li>
+                    <li>Check <strong>user_impersonation</strong></li>
+                    <li>Click <strong>Add permissions</strong></li>
+                </ol>
+
+                <h4>Step 4: Grant Admin Consent</h4>
+                <ol>
+                    <li>In the <strong>API permissions</strong> page, click <strong>Grant admin consent for [your
+                            tenant]</strong></li>
+                    <li>Click <strong>Yes</strong> to confirm</li>
+                    <li>Verify the status shows a green checkmark</li>
+                </ol>
+
+                <p><strong>Note:</strong> You may need Global Administrator privileges to grant admin consent. If you
+                    don't have these permissions, contact your IT administrator.</p>
+
+                <h4>Step 5: Assign RBAC Role (if needed)</h4>
+                <p>Ensure your user account has the <strong>Cognitive Services User</strong> role on the Foundry/AI
+                    Services resource in Azure.</p>
+
+                <h4>Step 6: Copy Application and Directory IDs</h4>
+                <p>Copy the <strong>Application (client) ID</strong> and <strong>Directory (tenant) ID</strong>
+                    from the Overview page</p>
+
+                <p><strong>📖 For more detailed instructions:</strong> <a
+                        href="https://learn.microsoft.com/entra/identity-platform/quickstart-register-app"
+                        target="_blank" rel="noopener noreferrer">Quickstart: Register an application with the Microsoft
+                        identity platform</a></p>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn" id="entra-help-modal-ok" aria-label="Close help dialog"
+                    type="button">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Video Player Modal -->
+    <div id="video-modal" class="modal" role="dialog" aria-labelledby="video-modal-title" aria-modal="true"
+        style="display: none;">
+        <div class="modal-overlay" aria-hidden="true"></div>
+        <div class="modal-content modal-content-wide">
+            <div class="modal-header">
+                <h2 id="video-modal-title">Video</h2>
+                <button class="modal-close" id="video-modal-close" aria-label="Close video player" title="Close"
+                    type="button">×</button>
+            </div>
+            <div class="modal-body" id="video-modal-body">
+                <div style="position: relative; overflow: hidden; aspect-ratio: 1920/1080">
+                    <iframe id="video-iframe" src="" loading="lazy" title="" allowfullscreen
+                        allow="encrypted-media; fullscreen; microphone; screen-wake-lock;"
+                        style="position: absolute; width: 100%; height: 100%; top: 0; left: 0; border: none; padding: 0; margin: 0; overflow:hidden;">
+                    </iframe>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn" id="video-modal-ok" aria-label="Close video player"
+                    type="button">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script type="module" src="script.js?v=78"></script>
+</body>
+
+</html>
