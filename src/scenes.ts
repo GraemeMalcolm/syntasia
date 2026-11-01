@@ -10,7 +10,7 @@ export function invalidateScene(scene: Scene): void {
 export function addScene(state: StudioState): Scene {
   if (state.working) throw new Error('Production locks scene editing.');
   if (state.scenes.length >= MAX_SCENES) throw new Error('The maximum is 20 scenes.');
-  const scene = emptyScene();
+  const scene = emptyScene(state.scenes.at(-1));
   state.scenes.push(scene);
   state.targetId = scene.id;
   state.dirty = true;
@@ -18,7 +18,7 @@ export function addScene(state: StudioState): Scene {
   return scene;
 }
 export function hasSceneWork(scene: Scene): boolean {
-  return !!(scene.script.trim() || scene.background || scene.previewUrl || scene.ssml || scene.conceptual);
+  return !!(scene.script.trim() || scene.background || scene.previewUrl || scene.ssml || scene.conceptual || scene.voiceId || scene.avatarId);
 }
 export function deleteScene(state: StudioState, id: string): void {
   if (state.working) throw new Error('Production locks scene editing.');

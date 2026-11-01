@@ -9,6 +9,8 @@ export interface Scene {
   id: string;
   script: string;
   ssml: boolean;
+  voiceId: string;
+  avatarId: string;
   conceptual: boolean;
   background: Background | null;
   revision: number;
@@ -25,18 +27,21 @@ export interface StudioState {
   scenes: Scene[];
   targetId: string;
   voices: Voice[];
-  voiceId: string;
   attachments: Attachment[];
   drafts: DraftMessage[];
   dirty: boolean;
   orderRevision: number;
-  avatarId: string;
   working: boolean;
 }
-export function emptyScene(): Scene {
-  return { id: crypto.randomUUID(), script: '', ssml: false, conceptual: false, background: null, revision: 0, sources: [], status: 'idle', previewUrl: null };
+export function emptyScene(previous?: Scene): Scene {
+  return {
+    id: crypto.randomUUID(), script: '', ssml: false, voiceId: previous?.voiceId ?? '', avatarId: previous?.avatarId ?? '',
+    conceptual: previous?.conceptual ?? false,
+    background: previous?.background ? { ...previous.background, url: URL.createObjectURL(previous.background.blob) } : null,
+    revision: 0, sources: [], status: 'idle', previewUrl: null,
+  };
 }
 export function createState(): StudioState {
   const scene = emptyScene();
-  return { config: null, configRevision: 0, scenes: [scene], targetId: scene.id, voices: [], voiceId: '', attachments: [], drafts: [], dirty: false, orderRevision: 0, avatarId: '', working: false };
+  return { config: null, configRevision: 0, scenes: [scene], targetId: scene.id, voices: [], attachments: [], drafts: [], dirty: false, orderRevision: 0, working: false };
 }

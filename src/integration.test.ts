@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { normalizeConfig, clearSettings, loadSettings, resourceOrigin } from './configuration';
 import { FoundryClient, buildRequest, readSse } from './foundry';
 import { readAttachments, validateBudget } from './chat';
-import { avatarEndpoint, avatarRequest, avatarVideo, validateOutputUrl } from './avatar';
+import { availableAvatars, avatarEndpoint, avatarRequest, avatarVideo, validateOutputUrl } from './avatar';
+import { AVATARS } from './types';
 import { toSsml, validateSsml, spokenText } from './ssml';
 import { parseServiceVtt, validateCues, webVtt } from './transcript';
 import { validateMetadata } from './production';
@@ -184,6 +185,69 @@ describe('input, endpoint and media validation', () => {
     expect(() => avatarEndpoint({ ...config, speechRegion: '' }, 'syntasia-test')).toThrow();
     expect(validateOutputUrl('https://stttssvcprodusw2.blob.core.windows.net/batchsynthesis-output/job/1.mp4?sig=fixture')).toContain('sig=fixture');
     for (const url of ['https://evil.test/video.mp4', 'https://storage.blob.core.windows.net/video.mp4', 'https://stttssvcprodusw2.blob.core.windows.net.evil.test/batchsynthesis-output/a']) expect(() => validateOutputUrl(url)).toThrow();
+  });
+  it('contains every documented batch character/style with unique IDs and official previews', () => {
+    const fullBody = AVATARS.filter(avatar => !avatar.photoAvatarBaseModel);
+    expect(fullBody.map(avatar => `${avatar.character}:${avatar.style ?? ''}`).sort()).toEqual([
+      'celine:', 'harry:', 'harry:casual', 'harry:youthful',
+      'lisa:business-sitting', 'lisa:business-standing', 'lisa:casual-sitting', 'lisa:coach-sitting', 'lisa:coach-standing',
+      'lisa:graceful-sitting', 'lisa:graceful-standing', 'lisa:technical-sitting', 'lisa:technical-standing',
+      'lori:casual', 'lori:formal', 'lori:graceful', 'malik:', 'max:business', 'max:casual', 'max:formal',
+      'meg:business', 'meg:casual', 'meg:formal', 'nia:', 'rowan:',
+    ].sort());
+    expect(AVATARS.filter(avatar => avatar.photoAvatarBaseModel).map(avatar => avatar.character).sort()).toEqual([
+      'adrian', 'amara', 'amira', 'anika', 'bianca', 'camila', 'carlos', 'clara', 'darius', 'diego',
+      'elise', 'farhan', 'faris', 'gabrielle', 'hyejin', 'imran', 'isabella', 'layla', 'liwei', 'ling',
+      'marcus', 'matteo', 'rahul', 'rana', 'ren', 'riya', 'sakura', 'simone', 'zayd', 'zoe',
+    ].sort());
+    expect(AVATARS).toHaveLength(55);
+    expect(new Set(AVATARS.map(avatar => avatar.id)).size).toBe(55);
+    expect(AVATARS[0].id).toBe('lisa-casual-sitting');
+    expect(AVATARS.find(avatar => avatar.id === 'zayd')?.previewUrl).toMatch(/\/zayd-avatar\.png$/);
+    expect(AVATARS.filter(avatar => avatar.preview).map(avatar => avatar.id).sort()).toEqual([
+      'lisa-business-sitting', 'lisa-business-standing', 'lisa-coach-sitting', 'lisa-coach-standing',
+    ]);
+    for (const avatar of AVATARS) expect(avatar.previewUrl).toMatch(/^https:\/\/learn\.microsoft\.com\/en-us\/azure\/ai-services\/speech-service\/text-to-speech-avatar\/media\/[a-z-]+\.png$/);
+  });
+  it('filters unsupported regions and retiring styles at the documented retirement boundary', () => {
+    const retirement = Date.parse('2026-12-01T00:00:00Z');
+    expect(availableAvatars('westus2', retirement - 1)).toHaveLength(55);
+    expect(availableAvatars('westus2', retirement)).toHaveLength(51);
+    expect(availableAvatars('australiaeast', retirement - 1)).toEqual([]);
+    const retired = AVATARS.filter(avatar => avatar.retiredOn);
+    expect(retired.map(avatar => avatar.id).sort()).toEqual([
+      'lisa-graceful-sitting', 'lisa-graceful-standing', 'lisa-technical-sitting', 'lisa-technical-standing',
+    ]);
+    vi.useFakeTimers();
+    vi.setSystemTime(retirement - 1);
+    for (const avatar of retired) expect(() => avatarRequest('Narration.', false, voice, avatar, false)).not.toThrow();
+    vi.setSystemTime(retirement);
+    for (const avatar of retired) expect(() => avatarRequest('Narration.', false, voice, avatar, false)).toThrow('retired');
+  });
+  it('uses standard photo request fields without video-avatar style or customized fields', () => {
+    for (const avatar of AVATARS.filter(item => item.photoAvatarBaseModel)) {
+      const body = avatarRequest('Narration.', false, voice, avatar, false);
+      expect(body.avatarConfig).toMatchObject({
+        talkingAvatarCharacter: avatar.character, photoAvatarBaseModel: 'vasa-1', videoFormat: 'mp4',
+        videoCodec: 'h264', subtitleType: 'soft_embedded', useBuiltInVoice: false,
+      });
+      expect(body.avatarConfig).not.toHaveProperty('talkingAvatarStyle');
+      expect(body.avatarConfig).not.toHaveProperty('customized');
+      expect(body.synthesisConfig).toEqual({ voice: voice.id });
+      const transparent = avatarRequest('Narration.', false, voice, avatar, true);
+      expect(transparent.avatarConfig).toMatchObject({ videoFormat: 'webm', videoCodec: 'vp9', backgroundColor: '#FFFFFF00' });
+    }
+  });
+  it('sends named video styles but does not invent styles for N/A catalog entries', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-31T00:00:00Z'));
+    for (const avatar of AVATARS.filter(item => !item.photoAvatarBaseModel)) {
+      const body = avatarRequest('Narration.', false, voice, avatar, false);
+      expect(body.avatarConfig).toMatchObject({ talkingAvatarCharacter: avatar.character, customized: false });
+      expect(body.avatarConfig).not.toHaveProperty('photoAvatarBaseModel');
+      if (avatar.style) expect(body.avatarConfig).toHaveProperty('talkingAvatarStyle', avatar.style);
+      else expect(body.avatarConfig).not.toHaveProperty('talkingAvatarStyle');
+    }
   });
   it('validates full encoded profile, duration and VTT positive bounds, exact gaps and approximate offsets', () => {
     const metadata = { streams: [{ codec_type: 'video', codec_name: 'h264', width: 1920, height: 1080, avg_frame_rate: '30/1' },

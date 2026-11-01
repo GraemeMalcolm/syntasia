@@ -14,7 +14,7 @@ import { join } from 'node:path';
 const config = normalizeConfig({ projectUrl: 'https://studio.services.ai.azure.com/api/projects/demo', model: 'demo', key: 'fixture-only-key' });
 const voice = { id: 'en-US-AvaMultilingualNeural', name: 'Ava', locale: 'en-US' };
 const plan = { version: 1, elements: [{ kind: 'text', text: 'Hello', x: 100, y: 100, size: 50, color: '#5271ff', start: 0, end: 1 }] };
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('settings and requests', () => {
   it('normalizes project and Speech origins without corrupting URL hosts', () => {
@@ -73,6 +73,15 @@ describe('scripts and safe animation', () => {
     expect(() => validatePlan(plan, 0.5)).toThrow();
     expect(() => svgFrame(validated, 1, 'https://evil.test/font')).toThrow();
   });
+  it('defers text fitting to measured font layout while preserving schema and shape boundaries', () => {
+    const text = { kind: 'text', x: 1880, y: 0, text: 'A label near the edge', size: 100, color: '#17233b', start: 0, end: 1 };
+    expect(validatePlan({ version: 1, elements: [text] }, 1).elements[0]).toEqual(text);
+    for (const invalid of [{ ...text, x: 1921 }, { ...text, size: 27 }, { ...text, text: '   ' }, { ...text, lines: ['Injected layout'] }]) {
+      expect(() => validatePlan({ version: 1, elements: [invalid] }, 1)).toThrow();
+    }
+    expect(() => validatePlan({ version: 1, elements: [{ kind: 'rect', x: 1900, y: 0, width: 100, height: 100, color: '#17233b', start: 0, end: 1 }] }, 1))
+      .toThrow('outside the frame');
+  });
 });
 
 describe('timeline and scenes', () => {
@@ -128,6 +137,43 @@ describe('timeline and scenes', () => {
     deleteScene(state, second.id);
     expect(state.scenes).toEqual([first]);
     expect(() => deleteScene(state, first.id)).toThrow();
+  });
+  it('starts with an unconfigured Virtual trainer and inherits the last displayed scene settings, not the chat target', () => {
+    const state = createState();
+    const first = state.scenes[0];
+    expect(first).toMatchObject({ voiceId: '', avatarId: '', conceptual: false, background: null });
+    first.voiceId = 'voice-a'; first.avatarId = 'lori-casual'; first.conceptual = true;
+    const second = addScene(state);
+    expect(second).toMatchObject({ voiceId: 'voice-a', avatarId: 'lori-casual', conceptual: true, script: '', ssml: false });
+    second.voiceId = 'voice-b'; second.avatarId = 'anika'; second.conceptual = false;
+    expect(first).toMatchObject({ voiceId: 'voice-a', avatarId: 'lori-casual', conceptual: true });
+    moveScene(state, second.id, -1);
+    state.targetId = second.id;
+    const third = addScene(state);
+    expect(third).toMatchObject({ voiceId: 'voice-a', avatarId: 'lori-casual', conceptual: true });
+  });
+  it('inherits background data with independent object URL ownership and no narration or generated media', () => {
+    const revoke = vi.fn();
+    const create = vi.fn().mockReturnValue('blob:inherited-background');
+    vi.stubGlobal('URL', { createObjectURL: create, revokeObjectURL: revoke });
+    const state = createState();
+    const first = state.scenes[0];
+    const blob = new Blob(['image'], { type: 'image/png' });
+    first.background = { name: 'background.png', blob, width: 100, height: 100, url: 'blob:original-background' };
+    first.script = 'Original narration'; first.ssml = true;
+    first.sources = [{ title: 'Source', url: 'https://learn.microsoft.com/' }];
+    first.previewUrl = 'blob:original-audio'; first.status = 'ready'; first.revision = 4;
+    first.clip = { blob, url: 'blob:original-video', duration: 1, revision: 4 };
+    const second = addScene(state);
+    expect(second.background).toEqual({ ...first.background, url: 'blob:inherited-background' });
+    expect(second.background).not.toBe(first.background);
+    expect(create).toHaveBeenCalledWith(blob);
+    expect(second).toMatchObject({ script: '', ssml: false, sources: [], previewUrl: null, status: 'idle', revision: 0 });
+    expect(second.clip).toBeUndefined();
+    deleteScene(state, first.id);
+    expect(revoke).toHaveBeenCalledWith('blob:original-background');
+    expect(revoke).not.toHaveBeenCalledWith('blob:inherited-background');
+    expect(second.background?.url).toBe('blob:inherited-background');
   });
   it('accepts only 1080p video with narration', () => {
     const metadata = { streams: [{ codec_type: 'video', width: 1920, height: 1080 }, { codec_type: 'audio' }], format: { duration: 2 } };

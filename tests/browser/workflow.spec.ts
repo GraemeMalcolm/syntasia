@@ -16,20 +16,26 @@ async function configure(page: Page) {
   await page.getByLabel('Model name', { exact: true }).fill('fixture-model');
   await page.getByLabel('Speech region', { exact: true }).fill('westus2');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.locator('#voice')).toBeEnabled();
+  await expect(page.locator('[data-voice]')).toBeEnabled();
 }
 async function fixtures(page: Page) {
   const requests: Record<string, unknown>[] = [];
+  const speechRequests: string[] = [];
   let holdPlan = false;
   let releasePlan: (() => void) | undefined;
   let id = 0;
   await page.route('https://**/*', async route => {
     const url = route.request().url();
     if (url === 'https://studio.cognitiveservices.azure.com/tts/cognitiveservices/voices/list') {
-      await route.fulfill({ json: [{ ShortName: 'en-US-AvaMultilingualNeural', DisplayName: 'Ava', Locale: 'en-US' }] });
+      await route.fulfill({ json: [
+        { ShortName: 'en-US-AvaMultilingualNeural', DisplayName: 'Ava', Locale: 'en-US' },
+        { ShortName: 'en-US-JennyNeural', DisplayName: 'Jenny', Locale: 'en-US' },
+      ] });
     } else if (url === 'https://studio.cognitiveservices.azure.com/tts/cognitiveservices/v1') {
       expect(route.request().headers()['ocp-apim-subscription-key']).toBe('local-fixture-key');
-      expect(route.request().postData()).toContain('en-US-AvaMultilingualNeural');
+      const narration = route.request().postData()!;
+      expect(narration).toMatch(/<voice name="en-US-(?:AvaMultilingualNeural|JennyNeural)">/);
+      speechRequests.push(narration);
       await route.fulfill({ contentType: 'audio/wav', body: wav() });
     } else if (url === 'https://studio.services.ai.azure.com/openai/v1/responses') {
       expect(route.request().headers()['api-key']).toBe('local-fixture-key');
@@ -43,7 +49,7 @@ async function fixtures(page: Page) {
       }
       const text = isPlan ? JSON.stringify({ version: 1, elements: [
         { kind: 'rect', x: 100, y: 100, width: 300, height: 200, color: '#5271ff', start: 0, end: 0.2 },
-        { kind: 'text', x: 120, y: 200, text: 'Hello', size: 50, color: '#17233b', start: 0, end: 0.2 },
+        { kind: 'text', x: 1880, y: 0, text: 'A conceptual animation label that must be fitted without losing any of its words.', size: 100, color: '#17233b', start: 0, end: 0.2 },
       ] }) : JSON.stringify({ narration: 'Hello from a researched fixture.', sources: body.tools.length ? [{ title: 'Learn fixture', url: 'https://learn.microsoft.com/azure/' }] : [] });
       const response = { id: `fixture-${++id}`, status: 'completed', output: [
         ...(body.tools.length ? [{ type: 'web_search_call', status: 'completed' }, { type: 'mcp_call', server_label: 'microsoft_learn', output: 'Mocked Learn results: https://learn.microsoft.com/azure/', error: null }] : []),
@@ -54,7 +60,7 @@ async function fixtures(page: Page) {
       } catch { /* Canceled client requests cannot consume late mock responses. */ }
     } else await route.abort('blockedbyclient');
   });
-  return { requests, hold: () => { holdPlan = true; }, release: () => { releasePlan?.(); } };
+  return { requests, speechRequests, hold: () => { holdPlan = true; }, release: () => { releasePlan?.(); } };
 }
 test('mocked researched streaming targets one scene and preserves completed response continuity', async ({ page }) => {
   const service = await fixtures(page);
@@ -98,7 +104,7 @@ test('real local animation production locks inputs, cancels late results, valida
   await page.locator('#produce').click();
   await page.locator('#confirm-accept').click();
   await expect(page.locator('#production-status')).toContainText('Designing');
-  for (const selector of ['#configuration', '#voice', '#avatar', '#add-scene', '#send', '#prompt', '#target', '#attachments', '#scenes textarea', '#scenes input', '#scenes [data-generate]']) {
+  for (const selector of ['#configuration', '[data-voice]', '[data-avatar]', '#add-scene', '#send', '#prompt', '#target', '#attachments', '#scenes textarea', '#scenes input', '#scenes [data-generate]']) {
     for (const control of await page.locator(selector).all()) await expect(control).toBeDisabled();
   }
   await expect(page.locator('#cancel-production')).toBeEnabled();
@@ -124,12 +130,77 @@ test('real local animation production locks inputs, cancels late results, valida
   expect(validation.vtt).toContain('Approximate timing for scenes 1');
   expect(validation.vtt).toContain('Hello world.');
   expect(validation.filename).toMatch(/^syntasia-.*\.vtt$/);
+  expect(service.requests).toHaveLength(2);
   const clipUrl = await page.locator('.media-canvas video').getAttribute('src');
-  await page.getByLabel('Conceptual animation', { exact: true }).uncheck();
-  await page.locator('#avatar').selectOption('lori-casual');
+  await page.getByLabel('Virtual trainer', { exact: true }).check();
+  await page.locator('[data-avatar]').selectOption('lori-casual');
   await expect(page.locator('.media-canvas video')).toHaveAttribute('src', clipUrl!);
   await expect(page.locator('.avatar-preview')).toHaveCount(0);
   await page.getByLabel('Script', { exact: true }).fill('Changed narration.');
   await expect(page.getByRole('link', { name: 'Download MP4' })).toHaveCount(0);
   await expect(page.locator('.scene-status')).toContainText('stale');
+});
+test('production uses individual voices, reuses unchanged clips and sends each scene avatar payload', async ({ page }) => {
+  test.setTimeout(120000);
+  const service = await fixtures(page);
+  await page.goto('./');
+  await expect(page.locator('#browser-status')).toContainText('pipeline fixture: passed');
+  await configure(page);
+  const first = page.getByRole('article', { name: 'Scene 1', exact: true });
+  const second = page.getByRole('article', { name: 'Scene 2', exact: true });
+  await first.getByLabel('Script', { exact: true }).fill('First voice.');
+  await first.getByLabel('Conceptual animation', { exact: true }).check();
+  await page.getByRole('button', { name: '+ Add scene', exact: true }).click();
+  await second.getByLabel('Voice', { exact: true }).selectOption('en-US-JennyNeural');
+  await second.getByLabel('Script', { exact: true }).fill('Second voice.');
+  await second.getByLabel('Use Speech Synthesis Markup Language (SSML)', { exact: true }).check();
+  await expect(page.locator('#produce')).toBeEnabled();
+  await page.locator('#produce').click();
+  await page.locator('#confirm-accept').click();
+  await expect(page.getByRole('link', { name: 'Download MP4' })).toBeVisible();
+  expect(service.speechRequests).toHaveLength(2);
+  expect(service.speechRequests[0]).toContain('name="en-US-AvaMultilingualNeural"');
+  expect(service.speechRequests[1]).toContain('name="en-US-JennyNeural"');
+  const firstClip = await first.locator('video').getAttribute('src');
+  const secondClip = await second.locator('video').getAttribute('src');
+  await second.getByLabel('Voice', { exact: true }).selectOption('en-US-AvaMultilingualNeural');
+  await expect(first.locator('.scene-status')).toContainText('ready');
+  await expect(second.locator('.scene-status')).toContainText('stale');
+  await expect(first.locator('video')).toHaveAttribute('src', firstClip!);
+  await expect(page.getByRole('link', { name: 'Download MP4' })).toHaveCount(0);
+  await page.locator('#produce').click();
+  await page.locator('#confirm-accept').click();
+  await expect(page.getByRole('link', { name: 'Download MP4' })).toBeVisible();
+  expect(service.speechRequests).toHaveLength(3);
+  expect(service.speechRequests[2]).toContain('name="en-US-AvaMultilingualNeural"');
+  await expect(first.locator('video')).toHaveAttribute('src', firstClip!);
+  expect(await second.locator('video').getAttribute('src')).not.toBe(secondClip);
+  const avatarRequests: Record<string, unknown>[] = [];
+  await page.route('**/avatar/batchsyntheses/**', async route => {
+    expect(route.request().method()).toBe('PUT');
+    avatarRequests.push(route.request().postDataJSON());
+    await route.fulfill({ status: 400, body: 'Fixture rejection; no live synthesis.' });
+  });
+  await first.getByLabel('Virtual trainer', { exact: true }).check();
+  await first.getByLabel('Avatar', { exact: true }).selectOption('anika');
+  await first.getByRole('button', { name: 'Generate', exact: true }).click();
+  await page.locator('#confirm-accept').click();
+  await expect(page.locator('#production-status')).toContainText('failed');
+  expect(avatarRequests).toHaveLength(1);
+  expect(avatarRequests[0]).toMatchObject({
+    synthesisConfig: { voice: 'en-US-AvaMultilingualNeural' },
+    avatarConfig: { talkingAvatarCharacter: 'anika', photoAvatarBaseModel: 'vasa-1' },
+  });
+  await second.getByLabel('Voice', { exact: true }).selectOption('en-US-JennyNeural');
+  await second.getByLabel('Virtual trainer', { exact: true }).check();
+  await second.getByLabel('Avatar', { exact: true }).selectOption('lori-casual');
+  await second.getByRole('button', { name: 'Generate', exact: true }).click();
+  await page.locator('#confirm-accept').click();
+  await expect(second.locator('.scene-status')).toContainText('failed');
+  expect(avatarRequests).toHaveLength(2);
+  expect(avatarRequests[1]).toMatchObject({
+    inputKind: 'SSML', avatarConfig: { talkingAvatarCharacter: 'lori', talkingAvatarStyle: 'casual' },
+    inputs: [{ content: expect.stringContaining('name="en-US-JennyNeural"') }],
+  });
+  await expect(first.getByLabel('Avatar', { exact: true })).toHaveValue('anika');
 });

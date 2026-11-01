@@ -1,7 +1,7 @@
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { z } from 'zod';
 import { WIDTH, HEIGHT, FPS } from './types';
-import { framePng } from './animation';
+import { fitPlanText, framePng, validatePlan } from './animation';
 import type { AnimationPlan } from './animation';
 import { parseServiceVtt, type Cue } from './transcript';
 
@@ -185,6 +185,8 @@ export async function normalizeAvatar(source: Blob, background: Blob | undefined
 export async function animationVideo(plan: AnimationPlan, audio: Blob, duration: number,
   signal: AbortSignal, status: Status): Promise<Media> {
   if (!(duration > 0) || duration > 300) throw new Error('Narration must be between zero and five minutes.');
+  status('Fitting animation labels to the frame…');
+  const layout = await fitPlanText(validatePlan(plan, duration), signal);
   return withEngine(signal, status, async ffmpeg => {
     await write(ffmpeg, 'narration.wav', audio, signal);
     const count = Math.ceil(duration * FPS);
@@ -193,7 +195,7 @@ export async function animationVideo(plan: AnimationPlan, audio: Blob, duration:
     for (let start = 0; start < count; start += FPS) {
       const end = Math.min(start + FPS, count);
       for (let frame = start; frame < end; frame++) {
-        const png = await framePng(plan, frame / FPS, signal);
+        const png = await framePng(layout, frame / FPS, signal);
         await ffmpeg.writeFile(`frame-${String(frame - start).padStart(3, '0')}.png`, png, { signal });
       }
       const name = `part-${parts.length}.mp4`;

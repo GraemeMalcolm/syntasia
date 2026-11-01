@@ -1,11 +1,14 @@
 import { z } from 'zod';
 import { endpoints, type Config } from './configuration';
-import type { Avatar } from './types';
+import { AVATARS, type Avatar } from './types';
 import type { Voice } from './speech';
 import { validateSsml, spokenText } from './ssml';
 import { request, delay } from './network';
 import { AppError } from './errors';
 export const AVATAR_REGIONS = ['westus2', 'eastus', 'eastus2', 'southcentralus', 'southeastasia', 'centralindia', 'westeurope', 'swedencentral', 'northeurope', 'italynorth', 'francecentral'];
+export function availableAvatars(region: string, now = Date.now()): Avatar[] {
+  return AVATAR_REGIONS.includes(region) ? AVATARS.filter(avatar => !avatar.retiredOn || now < Date.parse(avatar.retiredOn)) : [];
+}
 const jobSchema = z.object({
   status: z.enum(['NotStarted', 'Running', 'Succeeded', 'Failed']),
   outputs: z.object({ result: z.string().optional() }).passthrough().optional(),
@@ -25,13 +28,17 @@ export function validateOutputUrl(value: string): string {
   return url.href;
 }
 export function avatarRequest(script: string, ssml: boolean, voice: Voice, avatar: Avatar, transparent: boolean) {
+  if (avatar.retiredOn && Date.now() >= Date.parse(avatar.retiredOn)) throw new Error('This avatar style has retired. Select another avatar.');
   const content = ssml ? validateSsml(script, voice) : script;
   if (!spokenText(content, ssml)) throw new Error('Enter spoken narration before avatar synthesis.');
   return {
     inputKind: ssml ? 'SSML' : 'PlainText', inputs: [{ content }],
     ...(ssml ? {} : { synthesisConfig: { voice: voice.id } }),
     avatarConfig: {
-      talkingAvatarCharacter: avatar.character, talkingAvatarStyle: avatar.style, customized: false,
+      talkingAvatarCharacter: avatar.character,
+      ...(avatar.photoAvatarBaseModel
+        ? { photoAvatarBaseModel: avatar.photoAvatarBaseModel }
+        : { ...(avatar.style ? { talkingAvatarStyle: avatar.style } : {}), customized: false }),
       videoFormat: transparent ? 'webm' : 'mp4', videoCodec: transparent ? 'vp9' : 'h264',
       backgroundColor: transparent ? '#FFFFFF00' : '#FFFFFFFF', subtitleType: 'soft_embedded', useBuiltInVoice: false,
     },

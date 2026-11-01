@@ -68,3 +68,60 @@ test('embedded avatar subtitles emitted by FFmpeg retain short-form WebVTT timin
   expect(result.transcript).toContain('00:00:00.100 --> 00:00:00.600');
   expect(result.transcript).not.toContain('Approximate timing');
 });
+
+test('local font layout keeps full labels inside the frame at a readable size', async ({ page }) => {
+  await page.route('https://**/*', route => route.abort('blockedbyclient'));
+  await page.goto('./');
+  await expect(page.locator('#browser-status')).toContainText('pipeline fixture: passed');
+  const results = await page.evaluate(async () => {
+    const animation = await import('/syntasia/src/animation.ts');
+    const signal = new AbortController().signal;
+    const labels = [
+      { text: 'W'.repeat(100), x: 1910, y: 0, size: 100 },
+      { text: 'gyp descenders near the bottom', x: 0, y: 1080, size: 50 },
+      { text: '界'.repeat(100), x: 1910, y: 1080, size: 100 },
+      { text: 'i'.repeat(30), x: 1600, y: 400, size: 28 },
+    ];
+    const results = [];
+    for (const label of labels) {
+      const source = { ...label, kind: 'text', color: '#17233b', start: 0, end: 1 };
+      const plan = animation.validatePlan({ version: 1, elements: [source] }, 1);
+      const snapshot = JSON.stringify(plan);
+      const layout = await animation.fitPlanText(plan, signal);
+      const item = layout.elements[0];
+      if (item.kind !== 'text') throw new Error('Expected a fitted text label.');
+      const png = await animation.framePng(layout, 1, signal);
+      const image = await createImageBitmap(new Blob([png], { type: 'image/png' }));
+      const canvas = document.createElement('canvas'); canvas.width = 1920; canvas.height = 1080;
+      const context = canvas.getContext('2d')!;
+      context.drawImage(image, 0, 0); image.close();
+      const pixels = context.getImageData(0, 0, 1920, 1080).data;
+      let minX = 1920, minY = 1080, maxX = -1, maxY = -1;
+      for (let pixel = 0; pixel < 1920 * 1080; pixel++) {
+        if (pixels[pixel * 4] > 245 && pixels[pixel * 4 + 1] > 245 && pixels[pixel * 4 + 2] > 245) continue;
+        const x = pixel % 1920, y = Math.floor(pixel / 1920);
+        minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+      }
+      results.push({ original: label, text: item.text, renderedText: item.lines.join(''), lines: item.lines.length,
+        x: item.x, size: item.size, start: item.start, end: item.end, unchanged: JSON.stringify(plan) === snapshot,
+        minX, minY, maxX, maxY });
+    }
+    return results;
+  });
+  for (const result of results) {
+    expect(result.text).toBe(result.original.text);
+    expect(result.renderedText).toBe(result.original.text);
+    expect(result.unchanged).toBe(true);
+    expect(result.size).toBeGreaterThanOrEqual(28);
+    expect(result.size).toBeLessThanOrEqual(result.original.size);
+    expect(result).toMatchObject({ start: 0, end: 1 });
+    expect(result.maxX).toBeGreaterThanOrEqual(result.minX);
+    expect(result.minX).toBeGreaterThanOrEqual(23);
+    expect(result.minY).toBeGreaterThanOrEqual(23);
+    expect(result.maxX).toBeLessThan(1897);
+    expect(result.maxY).toBeLessThan(1057);
+  }
+  expect(results[2].lines).toBeGreaterThan(1);
+  expect(results[3]).toMatchObject({ x: 1600, size: 28 });
+});

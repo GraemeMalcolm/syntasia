@@ -10,6 +10,7 @@ test('compiled static build loads base-aware workers, WASM and font assets and v
   await expect(page.locator('#browser-status')).toContainText('pipeline fixture: passed');
   await expect(page.locator('#browser-status')).toContainText('Isolation: yes');
   await expect(page.locator('#browser-status')).toContainText('alpha decode: passed');
+  await expect(page.locator('#startup')).toHaveText('Local video ready (threaded mode).');
   await page.getByLabel('Script', { exact: true }).fill('Compiled local editing works.');
   expect(errors).toEqual([]);
   expect(broken).toEqual([]);

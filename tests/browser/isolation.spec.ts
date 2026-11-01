@@ -32,7 +32,8 @@ test('blocked worker startup permits only a verified nonisolated single-thread f
     await expect(page.locator('#browser-status')).toContainText('pipeline fixture: passed');
     await expect(page.locator('#browser-status')).toContainText('Isolation: no');
     expect(navigations).toBe(1);
-    await expect(page.locator('#startup')).toContainText(/single-thread/i);
+    await expect(page.locator('#startup')).toHaveText('Local video ready (single-thread mode).');
+    await expect(page.locator('#browser-status')).toContainText('Worker control timed out.');
     await expect(page.locator('#produce')).toBeDisabled();
   } finally { await context.close(); }
 });

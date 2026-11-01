@@ -18,8 +18,10 @@ test.beforeEach(async ({ page }) => {
 });
 test('one empty local scene, unavailable catalogs and explicit video gates', async ({ page }) => {
   await expect(page.getByLabel('Script', { exact: true })).toHaveValue('');
-  await expect(page.locator('#voice')).toBeDisabled();
-  await expect(page.locator('#avatar')).toBeDisabled();
+  await expect(page.locator('[data-voice]')).toBeDisabled();
+  await expect(page.locator('[data-avatar]')).toBeDisabled();
+  await expect(page.getByLabel('Virtual trainer', { exact: true })).toBeChecked();
+  await expect(page.locator('.toolbar select')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Generate', exact: true })).toBeDisabled();
   for (const produce of await page.getByRole('button', { name: 'Produce', exact: true }).all()) await expect(produce).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Delete scene', exact: true })).toBeDisabled();
@@ -94,7 +96,7 @@ test('decoded local background retained but excluded in conceptual mode', async 
   await expect(page.locator('.media-canvas img')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Upload background', exact: true })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Remove background', exact: true })).toBeDisabled();
-  await page.getByLabel('Conceptual animation', { exact: true }).uncheck();
+  await page.getByLabel('Virtual trainer', { exact: true }).check();
   await expect(page.locator('.media-canvas img')).toHaveCount(1);
   await page.getByRole('button', { name: 'Remove background', exact: true }).click();
   await expect(page.locator('.media-canvas img')).toHaveCount(0);
@@ -115,7 +117,7 @@ test('first Generate requests billable consent and cancel prevents network', asy
   page.on('request', request => { if (request.method() !== 'GET' && request.url().startsWith('https://')) calls++; });
   await page.route('**/tts/cognitiveservices/voices/list', route => route.fulfill({ json: [{ ShortName: 'en-US-AvaMultilingualNeural', DisplayName: 'Ava', Locale: 'en-US' }] }));
   await configure(page);
-  await expect(page.locator('#voice')).toBeEnabled();
+  await expect(page.locator('[data-voice]')).toBeEnabled();
   await page.getByLabel('Script', { exact: true }).fill('Hello world.');
   await page.getByLabel('Conceptual animation', { exact: true }).check();
   await page.getByRole('button', { name: 'Generate', exact: true }).click();

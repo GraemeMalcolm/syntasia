@@ -13,7 +13,7 @@ import { AVATARS } from './types';
 import { generatePlan } from './animation';
 import { animationVideo, audioDuration, concatenate, imageBackground, normalizeAvatar } from './production';
 import { webVtt } from './transcript';
-import { AVATAR_REGIONS, avatarEndpoint } from './avatar';
+import { AVATAR_REGIONS, availableAvatars, avatarEndpoint } from './avatar';
 import { bootstrapIsolation } from './coi-bootstrap';
 
 function element<T extends HTMLElement>(id: string): T {
@@ -53,11 +53,9 @@ let drawerBackdrop: HTMLDivElement | null = null;
 const speechOperations = new Map<string, AbortController>();
 const backgroundOperations = new Map<string, number>();
 const audioPlayers = new Map<string, HTMLAudioElement>();
-const voiceSelect = element<HTMLSelectElement>('voice');
 const targetSelect = element<HTMLSelectElement>('target');
 const prompt = element<HTMLTextAreaElement>('prompt');
 const send = element<HTMLButtonElement>('send');
-const avatarSelect = element<HTMLSelectElement>('avatar');
 let generationAbort: AbortController | null = null;
 let mediaQualified = false;
 let alphaQualified = false;
@@ -95,16 +93,18 @@ element('confirm-accept').addEventListener('click', () => settleConfirm(true));
 element('confirm-cancel').addEventListener('click', () => settleConfirm(false));
 confirmDialog.addEventListener('cancel', event => { event.preventDefault(); settleConfirm(false); });
 
-function selectedVoice(): Voice | undefined { return state.voices.find(voice => voice.id === state.voiceId); }
+function selectedVoice(scene: Scene): Voice | undefined { return state.voices.find(voice => voice.id === scene.voiceId); }
 function fingerprint(scene: Scene): string {
-  return JSON.stringify([scene.id, scene.revision, state.configRevision, state.voiceId, scene.conceptual ? '' : state.avatarId]);
+  return JSON.stringify([scene.id, scene.revision, state.configRevision, scene.voiceId, scene.conceptual ? '' : scene.avatarId]);
 }
 function generationGate(scene: Scene): string {
-  if (!state.config || !selectedVoice()) return 'Save Configuration to load Speech voices.';
+  if (!state.config || !state.voices.length) return 'Save Configuration to load Speech voices.';
+  if (!selectedVoice(scene)) return 'Select a voice for this scene.';
   if (!scene.script.trim()) return 'Enter spoken narration.';
   if (!mediaQualified) return 'Local 1080p encode/mux/playback fixture did not pass. Use a supported desktop browser/device.';
   if (!scene.conceptual) {
-    if (!state.avatarId) return 'Select an avatar in a supported Speech region.';
+    if (!scene.avatarId) return 'Select an avatar in a supported Speech region.';
+    if (!availableAvatars(state.config.speechRegion).some(avatar => avatar.id === scene.avatarId)) return 'The selected avatar has retired. Select another avatar.';
     try { avatarEndpoint(state.config, 'syntasia-validation'); } catch (error) { return publicError(error); }
     if (scene.background && !alphaQualified) return 'Transparent VP9 alpha decoding fixture did not pass. Remove the background or use a supported browser.';
   }
@@ -139,18 +139,35 @@ function refreshLocks(): void {
       'Ready to generate. Azure service access is checked during generation.';
   }
 }
-function renderAvatars(): void {
+function avatarControl(scene: Scene): HTMLDivElement {
+  const field = node('div', undefined, 'scene-field');
+  const label = node('label', 'Avatar');
+  const avatarSelect = node('select');
+  avatarSelect.id = `avatar-${scene.id}`;
+  avatarSelect.dataset.avatar = '';
+  label.htmlFor = avatarSelect.id;
   avatarSelect.replaceChildren(node('option', 'Select avatar'));
   avatarSelect.options[0].value = '';
-  const available = state.config && AVATAR_REGIONS.includes(state.config.speechRegion) ? AVATARS : [];
-  for (const avatar of available) {
-    const option = node('option', avatar.label);
-    option.value = avatar.id;
-    avatarSelect.append(option);
+  const available = state.config ? availableAvatars(state.config.speechRegion) : [];
+  for (const photo of [false, true]) {
+    const group = node('optgroup');
+    group.label = photo ? 'Photo avatars' : 'Full-body avatars';
+    for (const avatar of available.filter(item => !!item.photoAvatarBaseModel === photo)) {
+      const option = node('option', `${avatar.label}${avatar.preview ? ' (preview)' : ''}${avatar.retiredOn ? ' (retires Dec 2026)' : ''}`);
+      option.value = avatar.id;
+      group.append(option);
+    }
+    if (group.children.length) avatarSelect.append(group);
   }
-  if (!available.some(item => item.id === state.avatarId)) state.avatarId = available[0]?.id ?? '';
-  avatarSelect.value = state.avatarId;
-  avatarSelect.disabled = !state.config || !state.voices.length || !available.length;
+  avatarSelect.value = scene.avatarId;
+  avatarSelect.disabled = scene.conceptual || !state.config || !state.voices.length || !available.length;
+  avatarSelect.addEventListener('change', () => {
+    scene.avatarId = avatarSelect.value;
+    mutate(scene);
+    renderScenes();
+  });
+  field.append(label, avatarSelect);
+  return field;
 }
 function stopSpeech(scene: Scene): void {
   speechOperations.get(scene.id)?.abort();
@@ -177,9 +194,9 @@ function mutate(scene: Scene, manual = false): void {
     const stop = row.querySelector<HTMLButtonElement>('[data-stop]');
     if (stop) stop.disabled = true;
     const preview = row.querySelector<HTMLButtonElement>('[data-preview]');
-    if (preview) preview.disabled = !state.config || !selectedVoice() || !scene.script.trim();
+    if (preview) preview.disabled = !state.config || !selectedVoice(scene) || !scene.script.trim();
     const generate = row.querySelector<HTMLButtonElement>('[data-generate]');
-    if (generate) generate.disabled = !state.config || !selectedVoice() || !scene.script.trim() || (!scene.conceptual && !state.avatarId);
+    if (generate) generate.disabled = !!generationGate(scene);
   }
   updateDraftButtons();
   refreshLocks();
@@ -202,10 +219,7 @@ function resetConfiguration(config: Config | null): void {
   state.configRevision++;
   client = config ? new FoundryClient(config) : null;
   state.voices = [];
-  state.voiceId = '';
   for (const scene of state.scenes) mutate(scene);
-  renderVoices();
-  renderAvatars();
   renderScenes();
   updateSend();
 }
@@ -302,25 +316,24 @@ async function loadConfiguredVoices(config: Config, persisted: boolean): Promise
   voiceAbort?.abort();
   voiceAbort = controller;
   state.voices = [];
-  renderVoices();
-  renderAvatars();
   renderScenes();
   status(persisted ? 'Loading voices…' : 'Settings are session-only because browser storage is unavailable. Loading voices…');
   try {
     const voices = await loadVoices(config, controller.signal);
     if (controller.signal.aborted || voiceAbort !== controller || state.configRevision !== revision) return;
     if (!voices.length) throw new Error('Speech returned no voices. Check your Speech resource and save Configuration to retry.');
-    const voice = voices.find(item => item.id === state.voiceId) ?? voices[0];
-    const scripts = new Map<string, string>();
-    for (const scene of state.scenes) if (scene.ssml) scripts.set(scene.id, validateSsml(scene.script, voice));
+    const selections = state.scenes.map(scene => {
+      const voice = voices.find(item => item.id === scene.voiceId) ?? voices[0];
+      return { scene, voice, script: scene.ssml ? validateSsml(scene.script, voice) : scene.script };
+    });
+    const avatars = availableAvatars(config.speechRegion);
     state.voices = voices;
-    state.voiceId = voice.id;
-    for (const scene of state.scenes) {
-      scene.script = scripts.get(scene.id) ?? scene.script;
+    for (const { scene, voice, script } of selections) {
+      scene.voiceId = voice.id;
+      if (!avatars.some(avatar => avatar.id === scene.avatarId)) scene.avatarId = avatars[0]?.id ?? '';
+      scene.script = script;
       mutate(scene);
     }
-    renderVoices();
-    renderAvatars();
     renderScenes();
     const message = AVATAR_REGIONS.includes(config.speechRegion)
       ? 'Configuration ready.'
@@ -332,7 +345,13 @@ async function loadConfiguredVoices(config: Config, persisted: boolean): Promise
     if (voiceAbort === controller) voiceAbort = null;
   }
 }
-function renderVoices(): void {
+function voiceControl(scene: Scene): HTMLDivElement {
+  const field = node('div', undefined, 'scene-field');
+  const label = node('label', 'Voice');
+  const voiceSelect = node('select');
+  voiceSelect.id = `voice-${scene.id}`;
+  voiceSelect.dataset.voice = '';
+  label.htmlFor = voiceSelect.id;
   voiceSelect.replaceChildren(node('option', 'Select voice'));
   voiceSelect.options[0]!.value = '';
   for (const voice of state.voices) {
@@ -341,22 +360,20 @@ function renderVoices(): void {
     voiceSelect.append(option);
   }
   voiceSelect.disabled = !state.voices.length;
-  voiceSelect.value = state.voiceId;
-}
-voiceSelect.addEventListener('change', () => {
-  const next = state.voices.find(voice => voice.id === voiceSelect.value);
-  const changes = new Map<string, string>();
-  try {
-    for (const scene of state.scenes) if (scene.ssml && next) changes.set(scene.id, validateSsml(scene.script, next));
-  } catch (error) { voiceSelect.value = state.voiceId; errorStatus(error); return; }
-  state.voiceId = voiceSelect.value;
-  for (const scene of state.scenes) {
-    scene.script = changes.get(scene.id) ?? scene.script;
+  voiceSelect.value = scene.voiceId;
+  voiceSelect.addEventListener('change', () => {
+    const next = state.voices.find(voice => voice.id === voiceSelect.value);
+    try {
+      if (scene.ssml && next) scene.script = validateSsml(scene.script, next);
+    } catch (error) { voiceSelect.value = scene.voiceId; errorStatus(error); return; }
+    scene.voiceId = voiceSelect.value;
     mutate(scene);
-  }
-  renderScenes();
-  status('Voice changed. All narration previews invalidated; selected voice is authoritative for SSML.');
-});
+    renderScenes();
+    status('Scene voice changed. Its narration preview and video are stale; other scenes are unchanged.');
+  });
+  field.append(label, voiceSelect);
+  return field;
+}
 
 function renderTargets(): void {
   targetSelect.replaceChildren();
@@ -398,6 +415,26 @@ function renderScenes(): void {
       button('Move down', () => { invalidateOutput(); moveScene(state, scene.id, 1); renderScenes(); }, 'ghost', index === state.scenes.length - 1),
       button('Delete scene', () => { void removeScene(scene); }, 'ghost', state.scenes.length === 1));
     heading.append(title, controls);
+    const settings = node('div', undefined, 'scene-settings');
+    const mode = node('fieldset', undefined, 'scene-mode');
+    mode.append(node('legend', 'Presentation'));
+    for (const conceptual of [false, true]) {
+      const label = node('label', undefined, 'check');
+      const input = node('input');
+      input.type = 'radio';
+      input.name = `presentation-${scene.id}`;
+      input.id = `${conceptual ? 'conceptual' : 'trainer'}-${scene.id}`;
+      input.checked = scene.conceptual === conceptual;
+      label.htmlFor = input.id;
+      label.append(input, document.createTextNode(conceptual ? 'Conceptual animation' : 'Virtual trainer'));
+      input.addEventListener('change', () => {
+        scene.conceptual = conceptual;
+        mutate(scene);
+        renderScenes();
+      });
+      mode.append(label);
+    }
+    settings.append(voiceControl(scene), mode, avatarControl(scene));
     const columns = node('div', undefined, 'scene-columns');
     const editor = node('div', undefined, 'scene-editor');
     const scriptLabel = node('label', 'Script');
@@ -407,12 +444,12 @@ function renderScenes(): void {
     script.value = scene.script;
     script.placeholder = 'Write your narration here…';
     script.addEventListener('input', () => { scene.script = script.value; mutate(scene, true); });
-    const speech = button('Preview speech', () => { void synthesize(scene); }, 'secondary', !state.config || !selectedVoice() || !scene.script.trim() || speechOperations.has(scene.id));
+    const speech = button('Preview speech', () => { void synthesize(scene); }, 'secondary', !state.config || !selectedVoice(scene) || !scene.script.trim() || speechOperations.has(scene.id));
     speech.dataset.preview = '';
     const stop = button('Stop', () => { stopSpeech(scene); renderScenes(); status('Speech preview stopped and discarded.'); }, 'ghost', !scene.previewUrl && !speechOperations.has(scene.id));
     stop.dataset.stop = '';
     const generate = button('Generate', () => { void generateScenes([scene], false); }, '',
-      !state.config || !selectedVoice() || !scene.script.trim() || (!scene.conceptual && !state.avatarId));
+      !!generationGate(scene));
     generate.dataset.generate = '';
     generate.setAttribute('aria-describedby', 'video-gates');
     const actions = node('div', undefined, 'row');
@@ -448,7 +485,7 @@ function renderScenes(): void {
       canvas.append(video);
     } else {
       const caption = node('div', undefined, 'media-label');
-      const avatar = scene.conceptual || !state.voices.length ? undefined : AVATARS.find(item => item.id === state.avatarId);
+      const avatar = scene.conceptual || !state.voices.length ? undefined : AVATARS.find(item => item.id === scene.avatarId);
       if (avatar?.previewUrl) {
         canvas.setAttribute('aria-label', `${avatar.label} preview image, no generated video`);
         const image = node('img', undefined, 'avatar-preview');
@@ -485,19 +522,15 @@ function renderScenes(): void {
       mutate(scene);
       renderScenes();
     }, 'ghost', scene.conceptual || !scene.background);
-    const backgroundHint = node('small', scene.conceptual ? 'No avatar or background in animation mode. Existing images are retained locally and restored in avatar mode.' : scene.background ? `${scene.background.name} · ${scene.background.width} × ${scene.background.height} · local only; output transparency unverified` : 'Local JPEG/PNG · up to 10 MiB · max 4096px. Transparent video output is unverified.');
+    const backgroundHint = node('small', scene.conceptual ? 'No avatar or background in animation mode. Existing images are retained locally and restored in Virtual trainer mode.' : scene.background ? `${scene.background.name} · ${scene.background.width} × ${scene.background.height} · local only; output transparency unverified` : 'Local JPEG/PNG · up to 10 MiB · max 4096px. Transparent video output is unverified.');
     backgroundHint.id = `background-hint-${scene.id}`;
     uploadButton.setAttribute('aria-describedby', backgroundHint.id);
     remove.setAttribute('aria-describedby', backgroundHint.id);
     const backgroundActions = node('div', undefined, 'row');
     backgroundActions.append(uploadButton, remove);
-    preview.append(canvas, upload, backgroundActions, labeledCheck('Conceptual animation', `conceptual-${scene.id}`, scene.conceptual, input => {
-      scene.conceptual = input.checked;
-      mutate(scene);
-      renderScenes();
-    }), backgroundHint);
+    preview.append(canvas, upload, backgroundActions, backgroundHint);
     columns.append(editor, preview);
-    card.append(heading, columns);
+    card.append(heading, settings, columns);
     container.append(card);
   });
   renderTargets();
@@ -507,7 +540,7 @@ function renderScenes(): void {
 async function removeScene(scene: Scene): Promise<void> {
   if (state.scenes.length === 1) return;
   const revision = scene.revision;
-  if (hasSceneWork(scene) && !await confirmAction('Delete scene?', 'Delete this scene and its session-only script, background and audio? This cannot be undone.', 'Delete scene')) return;
+  if (hasSceneWork(scene) && !await confirmAction('Delete scene?', 'Delete this scene and its session-only script, settings, background and audio? This cannot be undone.', 'Delete scene')) return;
   if (!state.scenes.includes(scene) || scene.revision !== revision) { status('Scene changed while confirmation was open. Delete again to confirm current work.'); return; }
   stopSpeech(scene);
   invalidateOutput();
@@ -523,7 +556,7 @@ async function switchSsml(scene: Scene, input: HTMLInputElement): Promise<void> 
   try {
     let script: string;
     if (wantsSsml) {
-      const voice = selectedVoice();
+      const voice = selectedVoice(scene);
       if (!voice) throw new Error('Load and select an Azure Speech voice before converting to SSML.');
       script = toSsml(scene.script, voice);
     } else {
@@ -554,25 +587,25 @@ async function uploadBackground(scene: Scene, file: File): Promise<void> {
 }
 async function synthesize(scene: Scene): Promise<void> {
   const config = state.config;
-  const voice = selectedVoice();
+  const voice = selectedVoice(scene);
   if (!config || !voice) return;
   const revision = scene.revision;
   const configRevision = state.configRevision;
-  const voiceId = state.voiceId;
+  const voiceId = scene.voiceId;
   let script: string;
   try {
     script = scene.ssml ? validateSsml(scene.script, voice) : scene.script;
     if (!(scene.ssml ? spokenText(script) : script).trim()) throw new Error('Enter spoken text before synthesizing a preview.');
   } catch (error) { errorStatus(error); return; }
   if (!await confirmAction('Billable Speech preview', 'Send this scene narration and selected voice to Azure Speech? Synthesis can incur charges. The returned audio stays in this session and does not generate video.', 'Synthesize preview')) return;
-  if (scene.revision !== revision || state.configRevision !== configRevision || state.voiceId !== voiceId || !state.scenes.includes(scene)) { status('Inputs changed; speech preview was not sent.'); return; }
+  if (scene.revision !== revision || state.configRevision !== configRevision || scene.voiceId !== voiceId || !state.scenes.includes(scene)) { status('Inputs changed; speech preview was not sent.'); return; }
   stopSpeech(scene);
   const controller = new AbortController();
   speechOperations.set(scene.id, controller);
   renderScenes();
   try {
     const blob = await previewSpeech(config, script, scene.ssml, voice, controller.signal);
-    if (controller.signal.aborted || scene.revision !== revision || state.configRevision !== configRevision || state.voiceId !== voiceId || !state.scenes.includes(scene)) return;
+    if (controller.signal.aborted || scene.revision !== revision || state.configRevision !== configRevision || scene.voiceId !== voiceId || !state.scenes.includes(scene)) return;
     const measured = await audioDuration(blob);
     if (!(measured > 0) || controller.signal.aborted || state.configRevision !== configRevision || scene.revision !== revision) return;
     scene.previewUrl = URL.createObjectURL(blob);
@@ -606,7 +639,7 @@ async function applyDraft(message: DraftMessage): Promise<void> {
   if (scene.script.trim() && !await confirmAction('Replace scene script?', 'Replace the existing script in this target scene with the completed draft? Other scenes remain unchanged.', 'Replace script')) return;
   if (state.working || scene.revision !== message.targetRevision || state.configRevision !== message.configRevision || !state.scenes.includes(scene) || chatAbort) { status('Inputs changed; draft not applied.'); return; }
   try {
-    const voice = selectedVoice();
+    const voice = selectedVoice(scene);
     const narration = scene.ssml ? voice ? validateSsml(message.draft.narration, voice) : (() => { throw new Error('Select an Azure voice to validate SSML before applying.'); })() : message.draft.narration;
     if (!narration.trim()) throw new Error('Empty narration cannot be applied.');
     scene.script = narration;
@@ -674,7 +707,7 @@ async function sendDraft(): Promise<void> {
     validateBudget([text, target.script, ...attachments.map(file => file.text)].join('\n'));
     if (editorial && !target.script.trim()) throw new Error('Editorial requests require an existing target-scene script.');
     if (target.ssml) {
-      const voice = selectedVoice();
+      const voice = selectedVoice(target);
       if (!voice) throw new Error('Select a voice before requesting SSML narration.');
       validateSsml(target.script, voice);
     }
@@ -791,9 +824,8 @@ window.addEventListener('pagehide', () => {
 
 async function initialize(): Promise<void> {
   const startupMessage = await bootstrapIsolation();
-  element('startup').textContent = `${startupMessage} Testing local media; editing is available.`;
+  element('startup').textContent = 'Checking local video support; editing is available.';
   renderScenes();
-  renderAvatars();
   updateSend();
   document.querySelector('.workspace')?.removeAttribute('inert');
   element<HTMLButtonElement>('configuration').disabled = false;
@@ -803,24 +835,20 @@ async function initialize(): Promise<void> {
     const capabilities = await probeCapabilities(startupMessage);
     mediaQualified = capabilities.pipeline;
     alphaQualified = capabilities.alpha;
-    element('startup').textContent = `${capabilities.message} Editing is local. No live service requests have run.`;
-    element('browser-status').textContent = `Isolation: ${capabilities.isolated ? 'yes' : 'no'} · SharedArrayBuffer: ${capabilities.sharedArrayBuffer ? 'yes' : 'no'} · local 1080p pipeline fixture: ${capabilities.pipeline ? 'passed' : 'failed'} · alpha decode: ${capabilities.alpha ? 'passed' : 'failed'} · Azure and deployed Pages NOT qualified`;
+    element('startup').textContent = capabilities.pipeline
+      ? `Local video ready (${capabilities.threaded ? 'threaded' : 'single-thread'} mode).`
+      : 'Local video checks failed. Editing remains available; see Browser diagnostics.';
+    element('browser-status').textContent = `Isolation: ${capabilities.isolated ? 'yes' : 'no'} · SharedArrayBuffer: ${capabilities.sharedArrayBuffer ? 'yes' : 'no'} · local 1080p pipeline fixture: ${capabilities.pipeline ? 'passed' : 'failed'} · alpha decode: ${capabilities.alpha ? 'passed' : 'failed'} · Azure and deployed Pages NOT qualified\n${capabilities.message}`;
     element('media-status').textContent = capabilities.pipeline ? 'Local browser 1080p encode/decode/mux/playback fixture passed. External services remain independently conditional.' : 'Local encoding fixture failed; Generate and Produce disabled.';
   } catch (error) {
     element('startup').textContent = `Browser checks failed: ${publicError(error)} Local editing remains available; video stays disabled.`;
     element('browser-status').textContent = 'Browser capability checks failed · video disabled';
   }
   renderScenes();
-  renderAvatars();
   updateSend();
 }
 void initialize();
 
-avatarSelect.addEventListener('change', () => {
-  state.avatarId = avatarSelect.value;
-  for (const scene of state.scenes) if (!scene.conceptual) mutate(scene);
-  renderScenes();
-});
 element('produce').addEventListener('click', () => { void generateScenes([...state.scenes], true); });
 element('cancel-production').addEventListener('click', () => {
   generationAbort?.abort();
@@ -828,28 +856,26 @@ element('cancel-production').addEventListener('click', () => {
 });
 async function generateScenes(scenes: Scene[], produce: boolean): Promise<void> {
   const config = state.config;
-  const voice = selectedVoice();
-  if (!config || !voice || state.working) return;
-  const avatar = AVATARS.find(item => item.id === state.avatarId);
+  if (!config || state.working) return;
   const revisions = scenes.map(scene => scene.revision);
   const orderRevision = state.orderRevision;
-  const voiceId = state.voiceId;
-  const avatarId = state.avatarId;
   const fingerprints = scenes.map(fingerprint);
   try {
     for (const scene of scenes) {
       const gate = generationGate(scene);
       if (gate) throw new Error(gate);
+      const voice = selectedVoice(scene);
+      if (!voice) throw new Error('Select a voice for every scene.');
       if (!spokenText(scene.script, scene.ssml)) throw new Error('Every scene needs spoken narration.');
       if (scene.ssml) validateSsml(scene.script, voice);
-      if (!scene.conceptual && !avatar) throw new Error('Select an avatar for presentation scenes.');
+      if (!scene.conceptual && !AVATARS.some(avatar => avatar.id === scene.avatarId)) throw new Error('Select an avatar for Virtual trainer scenes.');
     }
   } catch (error) { errorStatus(error); return; }
   const configRevision = state.configRevision;
   if (!await confirmAction(produce ? 'Produce your video?' : 'Generate this scene?',
     'Send narration to Azure Speech to generate missing/stale scenes? Conceptual scenes also use your Foundry model with store: true under Azure retention. These operations are billable; service access and output are checked during generation, without separate test jobs. Local images are not uploaded. Editing is locked until completion or Cancel; remote jobs may continue after cancellation. VTT timing is approximate where service cues are unavailable.', 'Generate')) return;
-  if (state.working || state.configRevision !== configRevision || state.orderRevision !== orderRevision || state.voiceId !== voiceId || state.avatarId !== avatarId ||
-      scenes.some((scene, index) => !state.scenes.includes(scene) || scene.revision !== revisions[index])) {
+  if (state.working || state.configRevision !== configRevision || state.orderRevision !== orderRevision ||
+      scenes.some((scene, index) => !state.scenes.includes(scene) || scene.revision !== revisions[index] || fingerprint(scene) !== fingerprints[index])) {
     status('Inputs changed while confirmation was open. Nothing was generated.'); return;
   }
   cancelChat();
@@ -870,6 +896,8 @@ async function generateScenes(scenes: Scene[], produce: boolean): Promise<void> 
       scene.status = 'generating';
       renderScenes();
       progress(`Generating scene ${state.scenes.indexOf(scene) + 1}…`);
+      const voice = selectedVoice(scene);
+      if (!voice) throw new Error('Scene voice selection is unavailable.');
       let media;
       if (scene.conceptual) {
         const audio = await previewSpeech(config, scene.script, scene.ssml, voice, controller.signal);
@@ -880,6 +908,7 @@ async function generateScenes(scenes: Scene[], produce: boolean): Promise<void> 
         scene.status = 'rendering';
         media = await animationVideo(plan, audio, duration, controller.signal, progress);
       } else {
+        const avatar = AVATARS.find(item => item.id === scene.avatarId);
         if (!avatar) throw new Error('Avatar selection is unavailable.');
         const source = await avatarVideo(config, scene.script, scene.ssml, voice, avatar, !!scene.background, controller.signal, progress);
         const background = scene.background ? await imageBackground(scene.background.blob) : undefined;
@@ -912,7 +941,14 @@ async function generateScenes(scenes: Scene[], produce: boolean): Promise<void> 
       output.replaceChildren(node('h2', 'Your video is ready'), node('p', `1920 × 1080 · H.264/AAC · Transcript timing: ${clips.some(clip => !clip.cues?.length) ? 'approximate' : 'service-provided'}`));
       const video = node('video');
       video.controls = true; video.playsInline = true; video.src = url;
-      const track = node('track'); track.kind = 'subtitles'; track.label = 'Narration'; track.srclang = voice.locale.split('-')[0]; track.src = transcript; video.append(track);
+      const languages = new Set(scenes.map(scene => {
+        const voice = selectedVoice(scene);
+        if (!voice) throw new Error('Scene voice selection is unavailable.');
+        return voice.locale.split('-')[0];
+      }));
+      const track = node('track'); track.kind = 'subtitles'; track.label = 'Narration';
+      track.srclang = languages.size === 1 ? [...languages][0] : 'mul';
+      track.src = transcript; video.append(track);
       output.append(video);
       const name = `syntasia-${new Date().toISOString().replace(/[:.]/g, '-')}`;
       for (const [label, href, filename] of [['Download MP4', url, `${name}.mp4`], ['Download VTT', transcript, `${name}.vtt`]]) {

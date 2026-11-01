@@ -45,12 +45,10 @@ Show a persistent toolbar with:
 
 1. **Syntasia** name.
 2. **Configuration** button.
-3. **Voice** dropdown.
-4. **Avatar** dropdown.
-5. **Produce** button.
-6. Overall progress and, after successful production, **Download MP4** and **Download VTT** actions.
+3. **Produce** button.
+4. Overall progress and, after successful production, **Download MP4** and **Download VTT** actions.
 
-Voice and avatar selections are global and apply to all scenes. Changing either selection marks affected generated scenes and the assembled output as stale.
+Voice, avatar and presentation choices belong to individual scenes, not the toolbar. Changing a scene choice invalidates only that scene's generated media and the assembled output; other scenes retain their selections and clips.
 
 ### 3.2 Chat pane
 
@@ -67,14 +65,19 @@ Start with one scene. Display scenes as numbered rows in a vertically scrollable
 
 Each row contains:
 
+- A **Voice** dropdown and a **Presentation** choice between **Virtual trainer** (initial default) and **Conceptual animation**.
+- An **Avatar** dropdown enabled only for Virtual trainer scenes with a loaded catalog in a supported Speech region.
+
 | Script column | Preview column |
 | --- | --- |
 | Editable **Script** text area | Selected-avatar placeholder on white background, or generated video player |
 | **Use SSML** toggle, off initially | **Upload background** button accepting JPEG/PNG |
-| **Preview speech** button and stop control | **Conceptual animation** toggle, off initially |
+| **Preview speech** button and stop control | Background removal and scene-specific presentation controls |
 | **Generate** button and scene status | Generated-video playback controls |
 
 On narrow screens, stack the script editor above the preview. Provide **Add scene** beneath the list and row controls to reorder or delete scenes, with confirmation before deleting nonempty work. Keep at least one scene.
+
+New scenes inherit voice, avatar, presentation mode and background from the last scene in the displayed order, regardless of the chat target. They start with empty plain-text narration, no citations and no generated media. Backgrounds use independent object URLs so removing/replacing an image or deleting one scene cannot break another scene's inherited image. Each inherited choice remains independently editable.
 
 An avatar placeholder is not a synthesized video. Label it as a placeholder and use an approved asset for the chosen avatar/style; do not imply that it guarantees exact generated appearance.
 
@@ -132,12 +135,13 @@ Any future Entra scope change must address SPA registration, accepted token audi
 - Retrieve the available voice list from the configured Speech service where its supported browser API permits it.
 - Show friendly name, locale, and voice identifier. Preserve service identifiers in requests.
 - Do not substitute browser operating-system voices for Azure voices without labeling that as a separate, explicitly approved feature.
-- Populate avatar choices automatically on Save from a maintained, documented catalog of supported character/style combinations, filtered by configured region; actual availability is checked during generation. Do not assume an avatar-list API exists.
+- Populate avatar choices automatically on Save from the complete maintained Microsoft Learn standard batch catalog, grouped into full-body and `vasa-1` photo avatars and filtered by configured region and documented retirement dates. Preserve existing selections and the Lisa casual-sitting default. Label preview and retiring styles. Exclude real-time-only `vasa-2` and custom models. Actual resource access is checked during generation; no documented standard-avatar discovery API is available, and the browser must not scrape documentation.
+- Standard photo requests set `photoAvatarBaseModel: "vasa-1"` and omit both `talkingAvatarStyle` and `customized`. Video requests use documented named styles; N/A catalog entries do not invent a style identifier. Preserve selected voice, subtitle handling, output formats, local media validation and billable consent for both families.
 - Standard avatars are the initial scope. Custom avatars require a separately supported configuration and permission path.
 - Choose supported defaults when lists load; otherwise show **Select voice** / **Select avatar** and block dependent actions.
 - Handle empty lists, unauthorized access, unsupported regions, and incompatible selections explicitly.
 - Avatar selection is irrelevant for conceptual scenes. Voice selection still controls their narration.
-- Selecting an avatar immediately displays its official preview image in all avatar scene previews without a generated clip, including scenes added later. Do not replace generated/stale video players or conceptual previews. Preview-image failures are explicit and do not disable synthesis.
+- Selecting an avatar immediately displays its official preview image in that Virtual trainer scene when it has no generated clip. Newly added scenes use their inherited avatar. Do not replace generated/stale video players or conceptual previews. Preview-image failures are explicit and do not disable synthesis.
 
 ## 6. Chat, attachments, and script generation
 
@@ -218,7 +222,7 @@ For speech preview, follow ask-azure's POST to `<speech-origin>/tts/cognitiveser
 - Switching to SSML escapes the text and wraps it in valid `<speak>` and `<voice>` elements for the selected voice/locale.
 - Validate XML and the supported Azure Speech SSML subset before Preview or Generate.
 - Disable external entities, external audio, and unsupported elements or attributes.
-- The toolbar voice remains authoritative. Update the permitted voice element when the global voice changes; reject conflicting additional voice declarations in the initial version.
+- Each scene's voice remains authoritative for its narration. Update that scene's permitted voice element when its voice changes; reject conflicting additional voice declarations.
 - Switching back to plain text warns that markup effects such as pauses and emphasis will be lost. Preserve an in-session copy so a canceled conversion does not lose work.
 - Derive transcript text from spoken content, excluding markup. Do not narrate XML tags.
 
@@ -251,8 +255,8 @@ For speech preview, follow ask-azure's POST to `<speech-origin>/tts/cognitiveser
 When **Conceptual animation** is enabled:
 
 - Replace the avatar placeholder with a plain white canvas containing no avatar.
-- Disable Upload background and Remove background, with an accessible explanation.
-- Retain an existing background image in memory, but exclude it from animation generation and output. Restore it if avatar mode is selected again.
+- Disable that scene's Avatar dropdown, Upload background and Remove background. Keep its Voice dropdown enabled.
+- Retain the selected avatar and any background image in memory, but exclude them from animation generation and output. Restore them if Virtual trainer is selected again.
 - Invalidate previously generated output for that scene.
 
 On Generate:
@@ -268,13 +272,15 @@ On Generate:
 
 Use bundled, appropriately licensed fonts/assets. Keep all meaningful visuals within the frame. Provide a descriptive error if the plan is invalid; do not replace it with a blank video and report success.
 
+Fit text labels locally using measured bounds from the same bundled font used for rendering, rather than a character-count width estimate. Reposition, reduce the font no smaller than 28 px, and wrap as needed to retain the full label with a 24 px frame margin. Keep label timing and narration unchanged; fitting must not trigger extra model calls. Validate the schema, shape boundaries, and timeline before layout, and never silently truncate text or accept unreadable/clipped output.
+
 ### 8.3 Output and lifecycle
 
 - Required common scene profile: 1920 x 1080 (1080p), 16:9, 30 fps, H.264 video and AAC audio in MP4, with a consistent supported audio sample rate. All generated avatar scenes, conceptual-animation scenes, and the final assembled video must use this resolution.
 - Configure avatar synthesis and local composition for the 1080p profile and verify encoded output dimensions. Preview players may scale visually to fit the UI, but their generated video remains 1920 x 1080. If a service or browser pipeline cannot produce this profile, report the limitation rather than silently reducing resolution.
 - Initial limits: 20 scenes, five minutes per scene, and 30 minutes total. These are upper ceilings, not promises that every device has sufficient memory.
 - All generated scenes have visible duration and video playback controls.
-- Editing script, mode, relevant global selections, background, or service configuration makes the scene output **stale** and invalidates the assembled video.
+- Editing a scene's script, mode, voice, avatar or background makes its output **stale** and invalidates the assembled video. Service configuration changes invalidate all scenes.
 - Store a revision/fingerprint with every generation. Discard or label results arriving for an obsolete revision.
 - Preserve the last successful clip during regeneration, clearly marked stale when applicable.
 - Process heavy operations sequentially by default. Expose cancellation; stopping local polling does not guarantee an Azure job was canceled or its charges avoided.
@@ -284,7 +290,7 @@ Use bundled, appropriately licensed fonts/assets. Keep all meaningful visuals wi
 
 ### 9.1 Production flow
 
-1. Snapshot scene order, revisions, and global settings, and lock all generation-affecting controls until production succeeds, fails, or is canceled.
+1. Snapshot scene order, revisions, each scene's voice/avatar/mode/background settings and shared service configuration, and lock all generation-affecting controls until production succeeds, fails, or is canceled.
 2. Validate configuration, every script, total duration limits, and browser media capability.
 3. Generate missing/stale scenes, with billable-operation confirmation and per-scene progress.
 4. Stop production if any scene fails. Identify the failing scene and retain successful clips for retry.
