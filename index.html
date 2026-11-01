@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self' blob: https://*.services.ai.azure.com https://*.openai.azure.com https://*.cognitiveservices.azure.com https://*.tts.speech.microsoft.com https://*.api.cognitive.microsoft.com https://*.blob.core.windows.net; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' blob: data: https://learn.microsoft.com/en-us/azure/ai-services/speech-service/text-to-speech-avatar/media/; media-src 'self' blob:; connect-src 'self' blob: https://*.services.ai.azure.com https://*.openai.azure.com https://*.cognitiveservices.azure.com https://*.tts.speech.microsoft.com https://*.api.cognitive.microsoft.com https://*.blob.core.windows.net; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
   <title>Syntasia · Video studio</title>
 </head>
 <body>
@@ -15,7 +15,7 @@
       <button id="chat-toggle" class="secondary" aria-expanded="true" aria-controls="chat-panel" disabled>Research &amp; write</button>
       <button id="configuration" class="secondary" disabled>Configuration</button>
       <label class="toolbar-field" for="voice">Voice<select id="voice" disabled><option value="">Select voice</option></select></label>
-      <label class="toolbar-field" for="avatar">Avatar<select id="avatar" disabled aria-describedby="video-gates"><option value="">Catalog not qualified</option></select></label>
+      <label class="toolbar-field" for="avatar">Avatar<select id="avatar" disabled aria-describedby="video-gates"><option value="">Select avatar</option></select></label>
       <button id="produce" disabled aria-describedby="video-gates">Produce</button>
     </div>
   </header>
@@ -49,36 +49,28 @@
       </section>
     </div>
     <div class="production-bar"><small id="production-status">Production idle · 1080p</small><button id="cancel-production" class="secondary" disabled>Cancel production</button></div>
+    <details class="diagnostics"><summary>Browser diagnostics</summary><p id="browser-status">Checking…</p><p id="media-status">Checking local video support…</p></details>
   </main>
   <footer><span>Syntasia · browser-only authoring</span><span>Session work is not saved · no automatic recovery</span></footer>
   <dialog id="config-dialog" aria-labelledby="config-title">
     <article>
-      <h2 id="config-title">Configuration</h2><p>Connect your own services. Inference, research, Speech and video are checked independently.</p>
+      <h2 id="config-title">Configuration</h2>
       <form id="config-form" autocomplete="off">
         <label for="project-url">Project URL<input id="project-url" type="url" placeholder="https://your-account.services.ai.azure.com/api/projects/studio" required></label>
         <div><label for="authorization-key">Authorization key</label><div class="key-row"><input id="authorization-key" type="password" autocomplete="off" required><button id="reveal-key" type="button" class="secondary" aria-pressed="false">Reveal</button></div></div>
-        <small>Keys stay in memory, but remain accessible to page code. Use your own evaluation credentials; never distribute a shared service secret.</small>
         <label for="model-name">Model name<input id="model-name" placeholder="Your deployment identifier" required></label>
-        <details><summary>Advanced service settings · session only</summary>
-          <label for="responses-origin">Explicit Responses resource origin<input id="responses-origin" type="url"></label>
-          <div class="advanced-grid"><label for="speech-endpoint">Speech endpoint override<input id="speech-endpoint" type="url"></label><label for="speech-region">Speech region override<input id="speech-region"></label></div>
-          <label for="speech-key">Separate Speech authorization key<input id="speech-key" type="password" autocomplete="off"></label>
-          <label class="check"><input id="verify-transparency" type="checkbox">Verify transparent avatar output and local-background composition (separate billable test)</label>
+        <label for="speech-region">Speech region<input id="speech-region" placeholder="Your resource region, e.g. westus2" list="speech-regions" required></label>
+        <datalist id="speech-regions"></datalist>
+        <details><summary>Separate service endpoints (optional)</summary>
+          <div class="service-fields">
+            <label for="responses-origin">Responses endpoint<input id="responses-origin" type="url"></label>
+            <label for="speech-endpoint">Speech endpoint<input id="speech-endpoint" type="url"></label>
+            <label for="speech-key">Speech authorization key<input id="speech-key" type="password" autocomplete="off"></label>
+          </div>
         </details>
-        <p class="notice">Only Project URL and Model name persist in this browser and are readable by same-origin scripts until cleared. Keys, advanced fields and all authoring work stay session-only. New chat and configuration changes reset local continuity; they do not delete Foundry-stored data.</p>
         <p id="config-status" role="status" aria-live="polite"></p>
-        <div class="row actions"><button id="clear-settings" class="ghost" type="button">Clear settings</button><button id="config-cancel" class="secondary" type="button">Cancel</button><button id="test-connection" class="secondary" type="button">Test connection</button><button id="load-voices" class="secondary" type="button">Load Speech voices</button><button id="test-avatar" class="secondary" type="button">Verify selected avatar</button><button type="submit">Save</button></div>
+        <div class="row config-actions"><button id="clear-settings" class="ghost" type="button">Clear settings</button><div class="row actions"><button id="config-cancel" class="secondary" type="button">Cancel</button><button type="submit">Save</button></div></div>
       </form>
-      <h3>Independent capability checks</h3>
-      <div class="diagnostics"><table><thead><tr><th>Capability</th><th>Status</th></tr></thead><tbody>
-        <tr><th>Responses inference</th><td id="responses-status">Not tested · explicit billable consent required</td></tr>
-        <tr><th>Research tools</th><td>Unverified until actual required tool execution on a draft</td></tr>
-        <tr><th>Speech voice catalog</th><td id="speech-status">Not loaded · independent access check</td></tr>
-        <tr><th>Avatar / transparent media</th><td>Documented Lisa/Lori candidates in supported regions · qualify selected voice/style and opaque/transparent output independently</td></tr>
-        <tr><th>Timed animation / 1080p MP4</th><td id="media-status">Testing real local encode/decode, animation, muxing and playback; Azure qualification remains separate</td></tr>
-        <tr><th>Browser diagnostics</th><td id="browser-status">Checking…</td></tr>
-      </tbody></table></div>
-      <small>The isolation worker cannot bypass remote CORS. A successful inference request does not verify research, Speech, avatar, transparency or MP4.</small>
     </article>
   </dialog>
   <dialog id="confirm-dialog" aria-labelledby="confirm-title">

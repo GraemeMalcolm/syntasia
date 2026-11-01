@@ -5,6 +5,7 @@ async function configure(page: Page): Promise<void> {
   await page.getByLabel('Project URL', { exact: true }).fill('https://studio.services.ai.azure.com/api/projects/demo');
   await page.getByLabel('Authorization key', { exact: true }).fill('local-fixture-key');
   await page.getByLabel('Model name', { exact: true }).fill('fixture-model');
+  await page.getByLabel('Speech region', { exact: true }).fill('westus2');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
 }
 async function interceptServices(page: Page): Promise<void> {
@@ -109,17 +110,18 @@ test('responsive drawer preserves unsent prompt and closes with Escape', async (
   await page.getByRole('button', { name: 'Research & write', exact: true }).click();
   await expect(page.getByLabel('Describe your video', { exact: true })).toHaveValue('Keep this unsent.');
 });
-test('billable inference test consent is independent and cancel prevents network', async ({ page }) => {
+test('first Generate requests billable consent and cancel prevents network', async ({ page }) => {
   let calls = 0;
-  page.on('request', request => { if (request.url().includes('/openai/v1/responses')) calls++; });
+  page.on('request', request => { if (request.method() !== 'GET' && request.url().startsWith('https://')) calls++; });
+  await page.route('**/tts/cognitiveservices/voices/list', route => route.fulfill({ json: [{ ShortName: 'en-US-AvaMultilingualNeural', DisplayName: 'Ava', Locale: 'en-US' }] }));
   await configure(page);
-  await page.getByRole('button', { name: 'Configuration', exact: true }).click();
-  await page.getByRole('button', { name: 'Test connection', exact: true }).click();
-  await expect(page.getByRole('dialog', { name: 'Billable Responses inference test' })).toBeVisible();
-  await page.getByRole('dialog', { name: 'Billable Responses inference test' }).getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.locator('#voice')).toBeEnabled();
+  await page.getByLabel('Script', { exact: true }).fill('Hello world.');
+  await page.getByLabel('Conceptual animation', { exact: true }).check();
+  await page.getByRole('button', { name: 'Generate', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Generate this scene?' })).toContainText('billable');
+  await page.locator('#confirm-cancel').click();
   expect(calls).toBe(0);
-  await expect(page.locator('#responses-status')).toContainText('Not tested');
-  await expect(page.locator('#speech-status')).toContainText('Not loaded');
 });
 test('clear settings confirms and retains local scene work', async ({ page }) => {
   await page.getByLabel('Script', { exact: true }).fill('Keep my narration.');

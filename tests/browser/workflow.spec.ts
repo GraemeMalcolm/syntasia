@@ -14,9 +14,9 @@ async function configure(page: Page) {
   await page.getByLabel('Project URL', { exact: true }).fill('https://studio.services.ai.azure.com/api/projects/demo');
   await page.getByLabel('Authorization key', { exact: true }).fill('local-fixture-key');
   await page.getByLabel('Model name', { exact: true }).fill('fixture-model');
-  await page.locator('summary').click();
-  await page.getByLabel('Speech region override').fill('westus2');
+  await page.getByLabel('Speech region', { exact: true }).fill('westus2');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.locator('#voice')).toBeEnabled();
 }
 async function fixtures(page: Page) {
   const requests: Record<string, unknown>[] = [];
@@ -87,16 +87,9 @@ test('real local animation production locks inputs, cancels late results, valida
   await expect(page.locator('#scenes article')).toHaveCount(1);
   await expect(page.locator('#browser-status')).toContainText('pipeline fixture: passed');
   await configure(page);
-  await page.getByRole('button', { name: 'Configuration', exact: true }).click();
-  await page.getByRole('button', { name: 'Test connection', exact: true }).click();
-  await page.locator('#confirm-accept').click();
-  await expect(page.locator('#responses-status')).toContainText('Inference request completed');
-  await page.getByRole('button', { name: 'Load Speech voices', exact: true }).click();
-  await expect(page.locator('#speech-status')).toContainText('1 voices returned');
-  await page.locator('#config-cancel').click();
   await page.getByLabel('Script', { exact: true }).fill('Hello world.');
   await page.getByLabel('Conceptual animation', { exact: true }).check();
-  await expect(page.locator('#produce')).toBeDisabled();
+  await expect(page.locator('#produce')).toBeEnabled();
   await page.getByRole('button', { name: 'Preview speech', exact: true }).click();
   await page.locator('#confirm-accept').click();
   await expect(page.locator('audio')).toHaveCount(1);
@@ -131,6 +124,11 @@ test('real local animation production locks inputs, cancels late results, valida
   expect(validation.vtt).toContain('Approximate timing for scenes 1');
   expect(validation.vtt).toContain('Hello world.');
   expect(validation.filename).toMatch(/^syntasia-.*\.vtt$/);
+  const clipUrl = await page.locator('.media-canvas video').getAttribute('src');
+  await page.getByLabel('Conceptual animation', { exact: true }).uncheck();
+  await page.locator('#avatar').selectOption('lori-casual');
+  await expect(page.locator('.media-canvas video')).toHaveAttribute('src', clipUrl!);
+  await expect(page.locator('.avatar-preview')).toHaveCount(0);
   await page.getByLabel('Script', { exact: true }).fill('Changed narration.');
   await expect(page.getByRole('link', { name: 'Download MP4' })).toHaveCount(0);
   await expect(page.locator('.scene-status')).toContainText('stale');

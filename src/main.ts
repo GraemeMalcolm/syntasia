@@ -42,8 +42,9 @@ const chatPanel = element<HTMLElement>('chat-panel');
 const narrow = window.matchMedia('(max-width: 760px)');
 let client: FoundryClient | null = null;
 let chatAbort: AbortController | null = null;
-let configAbort: AbortController | null = null;
 let voiceAbort: AbortController | null = null;
+let reloadVoicesAfterCancel = false;
+let settingsPersisted = true;
 let attachmentRevision = 0;
 let chatRevision = 0;
 let confirmPending: ((accepted: boolean) => void) | null = null;
@@ -60,10 +61,12 @@ const avatarSelect = element<HTMLSelectElement>('avatar');
 let generationAbort: AbortController | null = null;
 let mediaQualified = false;
 let alphaQualified = false;
-let foundryQualified = false;
-const speechQualified = new Set<string>();
-const avatarQualified = new Set<string>();
 const outputUrls: string[] = [];
+for (const region of AVATAR_REGIONS) {
+  const option = node('option');
+  option.value = region;
+  element('speech-regions').append(option);
+}
 window.addEventListener('syntasia-storage-error', event => status((event as CustomEvent<string>).detail));
 
 function status(message: string): void { element('status').textContent = message; }
@@ -93,22 +96,17 @@ element('confirm-cancel').addEventListener('click', () => settleConfirm(false));
 confirmDialog.addEventListener('cancel', event => { event.preventDefault(); settleConfirm(false); });
 
 function selectedVoice(): Voice | undefined { return state.voices.find(voice => voice.id === state.voiceId); }
-function voiceGateKey(): string { return `${state.configRevision}:${state.voiceId}`; }
-function avatarGateKey(transparent: boolean): string { return `${voiceGateKey()}:${state.avatarId}:${transparent}`; }
 function fingerprint(scene: Scene): string {
   return JSON.stringify([scene.id, scene.revision, state.configRevision, state.voiceId, scene.conceptual ? '' : state.avatarId]);
 }
 function generationGate(scene: Scene): string {
-  if (!state.config || !selectedVoice()) return 'Save settings, then load and select an Azure Speech voice.';
+  if (!state.config || !selectedVoice()) return 'Save Configuration to load Speech voices.';
   if (!scene.script.trim()) return 'Enter spoken narration.';
   if (!mediaQualified) return 'Local 1080p encode/mux/playback fixture did not pass. Use a supported desktop browser/device.';
-  if (scene.conceptual) {
-    if (!foundryQualified) return 'Run the explicit Responses connection test before generating animation plans.';
-    if (!speechQualified.has(voiceGateKey())) return 'Preview speech successfully with this selected voice before video generation.';
-  } else {
-    if (!state.avatarId) return 'Set a supported Speech region, then select a documented avatar candidate.';
+  if (!scene.conceptual) {
+    if (!state.avatarId) return 'Select an avatar in a supported Speech region.';
+    try { avatarEndpoint(state.config, 'syntasia-validation'); } catch (error) { return publicError(error); }
     if (scene.background && !alphaQualified) return 'Transparent VP9 alpha decoding fixture did not pass. Remove the background or use a supported browser.';
-    if (!avatarQualified.has(avatarGateKey(!!scene.background))) return 'Run Verify selected avatar in Configuration. Service synthesis/download and transparency are independent gates.';
   }
   return '';
 }
@@ -138,7 +136,7 @@ function refreshLocks(): void {
       if (generate) { generate.disabled = !!generationGate(scene); generate.title = generationGate(scene); }
     }
     element('video-gates').textContent = state.scenes.map((scene, index) => generationGate(scene) ? `Scene ${index + 1}: ${generationGate(scene)}` : '').filter(Boolean).join(' ') ||
-      'Required local and selected-service checks passed for these inputs. Generation is billable; full deployment qualification remains separate.';
+      'Ready to generate. Azure service access is checked during generation.';
   }
 }
 function renderAvatars(): void {
@@ -146,11 +144,11 @@ function renderAvatars(): void {
   avatarSelect.options[0].value = '';
   const available = state.config && AVATAR_REGIONS.includes(state.config.speechRegion) ? AVATARS : [];
   for (const avatar of available) {
-    const option = node('option', `${avatar.label} · documented candidate; verify synthesis`);
+    const option = node('option', avatar.label);
     option.value = avatar.id;
     avatarSelect.append(option);
   }
-  if (!available.some(item => item.id === state.avatarId)) state.avatarId = '';
+  if (!available.some(item => item.id === state.avatarId)) state.avatarId = available[0]?.id ?? '';
   avatarSelect.value = state.avatarId;
   avatarSelect.disabled = !state.config || !state.voices.length || !available.length;
 }
@@ -193,8 +191,6 @@ function cancelChat(): void {
   updateSend();
 }
 function cancelConfigurationWork(): void {
-  configAbort?.abort();
-  configAbort = null;
   voiceAbort?.abort();
   voiceAbort = null;
 }
@@ -204,15 +200,10 @@ function resetConfiguration(config: Config | null): void {
   client?.reset();
   state.config = config;
   state.configRevision++;
-  foundryQualified = false;
-  speechQualified.clear();
-  avatarQualified.clear();
   client = config ? new FoundryClient(config) : null;
   state.voices = [];
   state.voiceId = '';
   for (const scene of state.scenes) mutate(scene);
-  element('responses-status').textContent = 'Not tested · explicit billable consent required';
-  element('speech-status').textContent = 'Not loaded · independent access check';
   renderVoices();
   renderAvatars();
   renderScenes();
@@ -226,6 +217,8 @@ function updateSend(): void {
 function configInput(): Config {
   const responsesOrigin = element<HTMLInputElement>('responses-origin').value;
   const speechOrigin = element<HTMLInputElement>('speech-endpoint').value;
+  const speechRegion = element<HTMLInputElement>('speech-region').value.trim();
+  if (!speechRegion) throw new Error('Enter your Speech resource region.');
   return normalizeConfig({
     projectUrl: element<HTMLInputElement>('project-url').value,
     key: element<HTMLInputElement>('authorization-key').value,
@@ -233,13 +226,14 @@ function configInput(): Config {
     ...(responsesOrigin ? { responsesOrigin } : {}),
     ...(speechOrigin ? { speechOrigin } : {}),
     speechKey: element<HTMLInputElement>('speech-key').value,
-    speechRegion: element<HTMLInputElement>('speech-region').value
+    speechRegion
   });
 }
 function sameConfig(a: Config, b: Config): boolean {
   return a.projectUrl === b.projectUrl && a.key === b.key && a.model === b.model && a.responsesOrigin === b.responsesOrigin && a.speechOrigin === b.speechOrigin && a.speechKey === b.speechKey && a.speechRegion === b.speechRegion;
 }
 function openConfig(): void {
+  reloadVoicesAfterCancel = !!voiceAbort;
   const stored = loadSettings();
   const config = state.config;
   element<HTMLInputElement>('project-url').value = config?.projectUrl ?? stored.projectUrl;
@@ -256,15 +250,18 @@ function openConfig(): void {
   configDialog.showModal();
   element('project-url').focus();
 }
-function closeConfig(): void {
-  cancelConfigurationWork();
+function closeConfig(restoreCatalog = true): void {
   configDialog.close();
   configForm.reset();
   for (const id of ['authorization-key', 'speech-key']) element<HTMLInputElement>(id).value = '';
   element('configuration').focus();
+  if (restoreCatalog && reloadVoicesAfterCancel && state.config && !state.voices.length && !voiceAbort) {
+    void loadConfiguredVoices(state.config, settingsPersisted);
+  }
+  reloadVoicesAfterCancel = false;
 }
 element('configuration').addEventListener('click', openConfig);
-element('config-cancel').addEventListener('click', closeConfig);
+element('config-cancel').addEventListener('click', () => closeConfig());
 configDialog.addEventListener('cancel', event => { event.preventDefault(); closeConfig(); });
 element('reveal-key').addEventListener('click', () => {
   const input = element<HTMLInputElement>('authorization-key');
@@ -277,16 +274,17 @@ configForm.addEventListener('input', () => {
   cancelChat();
   for (const scene of state.scenes) stopSpeech(scene);
   renderScenes();
-  configStatus('Unsaved edits. Save to activate; Cancel discards them. In-flight service work was canceled.');
+  configStatus('');
 });
 configForm.addEventListener('submit', event => {
   event.preventDefault();
   try {
     const config = configInput();
     const persisted = saveSettings(config);
+    settingsPersisted = persisted;
     if (!state.config || !sameConfig(state.config, config)) resetConfiguration(config);
-    closeConfig();
-    status(persisted ? 'Configuration saved. Only project URL and model persist; service capabilities are checked independently.' : 'Browser storage unavailable: configuration is session-only. Editing remains available.');
+    closeConfig(false);
+    void loadConfiguredVoices(config, persisted);
   } catch (error) { configStatus(publicError(error)); }
 });
 element('clear-settings').addEventListener('click', () => {
@@ -298,71 +296,42 @@ element('clear-settings').addEventListener('click', () => {
     status(cleared ? 'Settings and active credentials cleared. Scene edits retained.' : 'Active credentials cleared. Browser storage could not be accessed; persisted values may remain.');
   })();
 });
-element('test-connection').addEventListener('click', () => {
-  void (async () => {
-    let config: Config;
-    try { config = configInput(); } catch (error) { configStatus(publicError(error)); return; }
-    if (!await confirmAction('Billable Responses inference test', 'This sends a minimal editorial-only connection-check script to the configured Foundry model with store: true. It can incur model charges and stores test data under Azure retention. It does not test research tools, Speech or video.', 'Run billable test')) return;
-    if (!configDialog.open) return;
-    try { if (!sameConfig(config, configInput())) return; } catch { return; }
-    const controller = new AbortController();
-    configAbort?.abort();
-    configAbort = controller;
-    const testClient = new FoundryClient(config);
-    element('responses-status').textContent = 'Testing Responses inference only…';
-    try {
-      await testClient.generate({ prompt: 'Return the existing connection-check sentence unchanged. Do not add facts.', script: 'Connection check.', ssml: false, editorial: true, microsoft: false, attachments: [], sources: [], signal: controller.signal });
-      if (controller.signal.aborted || configAbort !== controller) return;
-      if (state.config && sameConfig(state.config, config)) foundryQualified = true;
-      element('responses-status').textContent = 'Inference request completed · research, Speech and avatar NOT verified';
-      configStatus('Responses inference completed. This is not an all-services connection success.');
-    } catch (error) {
-      if (!controller.signal.aborted) {
-        element('responses-status').textContent = 'Inference test failed';
-        configStatus(publicError(error));
-      }
-    } finally {
-      testClient.reset();
-      if (configAbort === controller) configAbort = null;
-      refreshLocks();
+async function loadConfiguredVoices(config: Config, persisted: boolean): Promise<void> {
+  const controller = new AbortController();
+  const revision = state.configRevision;
+  voiceAbort?.abort();
+  voiceAbort = controller;
+  state.voices = [];
+  renderVoices();
+  renderAvatars();
+  renderScenes();
+  status(persisted ? 'Loading voices…' : 'Settings are session-only because browser storage is unavailable. Loading voices…');
+  try {
+    const voices = await loadVoices(config, controller.signal);
+    if (controller.signal.aborted || voiceAbort !== controller || state.configRevision !== revision) return;
+    if (!voices.length) throw new Error('Speech returned no voices. Check your Speech resource and save Configuration to retry.');
+    const voice = voices.find(item => item.id === state.voiceId) ?? voices[0];
+    const scripts = new Map<string, string>();
+    for (const scene of state.scenes) if (scene.ssml) scripts.set(scene.id, validateSsml(scene.script, voice));
+    state.voices = voices;
+    state.voiceId = voice.id;
+    for (const scene of state.scenes) {
+      scene.script = scripts.get(scene.id) ?? scene.script;
+      mutate(scene);
     }
-  })();
-});
-element('load-voices').addEventListener('click', () => {
-  void (async () => {
-    let config: Config;
-    try {
-      config = configInput();
-      if (!state.config || !sameConfig(state.config, config)) throw new Error('Save these settings, then reopen Configuration to load the Speech voice catalog.');
-    } catch (error) { configStatus(publicError(error)); return; }
-    const controller = new AbortController();
-    voiceAbort?.abort();
-    voiceAbort = controller;
-    element('speech-status').textContent = 'Loading Azure Speech voices…';
-    try {
-      const voices = await loadVoices(config, controller.signal);
-      if (controller.signal.aborted || voiceAbort !== controller) return;
-      state.voices = voices;
-      if (!voices.some(voice => voice.id === state.voiceId)) state.voiceId = voices[0]?.id ?? '';
-      element('speech-status').textContent = voices.length ? `${voices.length} voices returned · synthesis and avatar not verified` : 'Empty voice catalog · dependent actions disabled';
-      renderVoices();
-      renderAvatars();
-      for (const scene of state.scenes) {
-        if (scene.ssml && selectedVoice()) {
-          try { scene.script = validateSsml(scene.script, selectedVoice()!); } catch (error) { configStatus(publicError(error)); }
-        }
-        mutate(scene);
-      }
-      renderScenes();
-      if (voices.length) configStatus('Azure voice catalog loaded independently. This does not verify preview synthesis, avatar or production.');
-    } catch (error) {
-      if (!controller.signal.aborted) {
-        element('speech-status').textContent = 'Voice catalog access failed';
-        configStatus(`${publicError(error)} Supply an explicit supported Speech endpoint/key if shared-resource access is unavailable.`);
-      }
-    } finally { if (voiceAbort === controller) voiceAbort = null; }
-  })();
-});
+    renderVoices();
+    renderAvatars();
+    renderScenes();
+    const message = AVATAR_REGIONS.includes(config.speechRegion)
+      ? 'Configuration ready.'
+      : `Voices loaded. Avatars are not supported in ${config.speechRegion}; use a Speech resource in a supported region.`;
+    status(persisted ? message : `${message} Settings are session-only because browser storage is unavailable.`);
+  } catch (error) {
+    if (!controller.signal.aborted) status(`Could not load voices: ${publicError(error)} Check Configuration and save to retry.`);
+  } finally {
+    if (voiceAbort === controller) voiceAbort = null;
+  }
+}
 function renderVoices(): void {
   voiceSelect.replaceChildren(node('option', 'Select voice'));
   voiceSelect.options[0]!.value = '';
@@ -479,10 +448,27 @@ function renderScenes(): void {
       canvas.append(video);
     } else {
       const caption = node('div', undefined, 'media-label');
-      caption.append(node('span', scene.conceptual ? '▱' : '▷', 'media-symbol'),
-        node('strong', scene.conceptual ? 'White animation canvas' : AVATARS.find(avatar => avatar.id === state.avatarId)?.label || 'Avatar not selected'),
-        node('small', 'Placeholder · not an exact avatar likeness'));
-      canvas.append(caption);
+      const avatar = scene.conceptual || !state.voices.length ? undefined : AVATARS.find(item => item.id === state.avatarId);
+      if (avatar?.previewUrl) {
+        canvas.setAttribute('aria-label', `${avatar.label} preview image, no generated video`);
+        const image = node('img', undefined, 'avatar-preview');
+        image.referrerPolicy = 'no-referrer';
+        image.src = avatar.previewUrl;
+        image.alt = `${avatar.label} preview`;
+        image.addEventListener('error', () => {
+          if (!image.isConnected) return;
+          image.remove();
+          caption.replaceChildren(node('strong', avatar.label), node('small', 'Preview image unavailable'));
+          canvas.append(caption);
+          status(`Could not load the preview image for ${avatar.label}. Avatar synthesis remains available.`);
+        }, { once: true });
+        canvas.append(image, node('small', 'Preview · Microsoft Learn', 'avatar-caption'));
+      } else {
+        caption.append(node('span', scene.conceptual ? '▱' : '▷', 'media-symbol'),
+          node('strong', scene.conceptual ? 'White animation canvas' : 'Select an avatar'),
+          node('small', 'No generated video'));
+        canvas.append(caption);
+      }
     }
     const uploadId = `background-${scene.id}`;
     const upload = node('input');
@@ -589,7 +575,6 @@ async function synthesize(scene: Scene): Promise<void> {
     if (controller.signal.aborted || scene.revision !== revision || state.configRevision !== configRevision || state.voiceId !== voiceId || !state.scenes.includes(scene)) return;
     const measured = await audioDuration(blob);
     if (!(measured > 0) || controller.signal.aborted || state.configRevision !== configRevision || scene.revision !== revision) return;
-    speechQualified.add(voiceGateKey());
     scene.previewUrl = URL.createObjectURL(blob);
     status('Speech preview ready. Use audio controls to play; no video was generated.');
   } catch (error) { if (!controller.signal.aborted) errorStatus(error); }
@@ -841,41 +826,6 @@ element('cancel-production').addEventListener('click', () => {
   generationAbort?.abort();
   status('Canceling local generation/production. Remote Azure jobs may continue and incur charges.');
 });
-element('test-avatar').addEventListener('click', () => {
-  void (async () => {
-    const config = state.config;
-    const voice = selectedVoice();
-    const avatar = AVATARS.find(item => item.id === state.avatarId);
-    if (!config || !voice || !avatar || state.working || !mediaQualified) { configStatus('Save a supported region, load voices, select an avatar candidate and pass the local pipeline fixture first.'); return; }
-    try { if (!sameConfig(config, configInput())) throw new Error('Save changed settings first.'); avatarEndpoint(config, 'syntasia-verification'); } catch (error) { configStatus(publicError(error)); return; }
-    const key = voiceGateKey();
-    const avatarId = state.avatarId;
-    const transparent = element<HTMLInputElement>('verify-transparency').checked;
-    if (transparent && !alphaQualified) { configStatus('Local VP9 alpha decode fixture did not pass; transparent output cannot be qualified.'); return; }
-    if (!await confirmAction('Billable avatar qualification', `Synthesize “Avatar verification.” with ${avatar.label} and the selected voice. This submits a billable Speech avatar job and checks submit/poll/download, exact 1080p and ${transparent ? 'transparent VP9 alpha decoding/composition' : 'opaque MP4'} locally. Local files are never uploaded. Cancellation cannot guarantee remote billing stops.`, 'Verify avatar')) return;
-    if (state.working || voiceGateKey() !== key || state.avatarId !== avatarId || !configDialog.open) return;
-    const controller = new AbortController();
-    configAbort?.abort(); configAbort = controller;
-    state.working = true; refreshLocks();
-    try {
-      const source = await avatarVideo(config, 'Avatar verification.', false, voice, avatar, transparent, controller.signal, configStatus);
-      let background: Blob | undefined;
-      if (transparent) {
-        const canvas = document.createElement('canvas'); canvas.width = 1920; canvas.height = 1080;
-        const ctx = canvas.getContext('2d')!; ctx.fillStyle = '#087c86'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-        background = await new Promise<Blob>((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Qualification background rendering failed.')), 'image/png'));
-      }
-      await normalizeAvatar(source, background, controller.signal, configStatus);
-      controller.signal.throwIfAborted();
-      if (voiceGateKey() !== key || state.avatarId !== avatarId) return;
-      avatarQualified.add(avatarGateKey(transparent));
-      // A transparent job does not prove the separate opaque submission/output path.
-      configStatus(`Selected avatar ${transparent ? 'transparent' : 'opaque'} synthesis/download/render verified for this session. ${transparent ? 'Background-free avatar scenes still require an opaque test.' : 'Local backgrounds remain unqualified.'}`);
-    } catch (error) { if (!controller.signal.aborted) configStatus(publicError(error)); }
-    finally { if (configAbort === controller) configAbort = null; state.working = false; renderScenes(); updateSend(); }
-  })();
-});
-
 async function generateScenes(scenes: Scene[], produce: boolean): Promise<void> {
   const config = state.config;
   const voice = selectedVoice();
@@ -897,7 +847,7 @@ async function generateScenes(scenes: Scene[], produce: boolean): Promise<void> 
   } catch (error) { errorStatus(error); return; }
   const configRevision = state.configRevision;
   if (!await confirmAction(produce ? 'Produce your video?' : 'Generate this scene?',
-    'Missing/stale scenes send narration to Azure Speech; conceptual scenes also use your Foundry model with store: true under Azure retention. These operations are billable. All output is 1080p. Editing is locked until completion or Cancel; remote jobs may continue after cancellation. VTT timing is approximate where service cues are unavailable.', 'Generate')) return;
+    'Send narration to Azure Speech to generate missing/stale scenes? Conceptual scenes also use your Foundry model with store: true under Azure retention. These operations are billable; service access and output are checked during generation, without separate test jobs. Local images are not uploaded. Editing is locked until completion or Cancel; remote jobs may continue after cancellation. VTT timing is approximate where service cues are unavailable.', 'Generate')) return;
   if (state.working || state.configRevision !== configRevision || state.orderRevision !== orderRevision || state.voiceId !== voiceId || state.avatarId !== avatarId ||
       scenes.some((scene, index) => !state.scenes.includes(scene) || scene.revision !== revisions[index])) {
     status('Inputs changed while confirmation was open. Nothing was generated.'); return;

@@ -87,15 +87,18 @@ The Configuration modal includes these primary fields:
 - **Project URL**: HTTPS Microsoft Foundry project endpoint or resource URL. Accept a validated `https://<account>.services.ai.azure.com/api/projects/<project>` URL or supported resource root and derive its resource origin for Responses calls.
 - **Authorization key**: masked secret input; optional reveal control.
 - **Model name**: deployment name or identifier required by the selected inference API, not merely a model-family display name.
+- **Speech region**: the region of the user's existing Speech resource, required and visible alongside the other primary fields. Do not infer it from a Foundry hostname or instruct users to substitute an unrelated region.
 
-Provide **Save**, **Cancel**, **Test connection**, and **Clear settings** controls.
+Provide **Save**, **Cancel**, and **Clear settings** controls. Keep the modal compact and limited to input fields and these actions; remove explanatory notes, capability tables, and manual catalog/test buttons. Optional separate endpoint/key fields remain collapsed. Errors remain visible.
+
+On Save, automatically retrieve Speech voices and populate voice/avatar dropdowns with supported defaults as soon as loading succeeds. No extra configuration actions are required. Report loading, empty catalogs, authorization failures, and unsupported avatar regions explicitly outside the closed modal; Save retries loading. A newer configuration or canceled request must never accept a stale catalog.
 
 Use API-key authentication only in v1. Do not include an Entra toggle, client/tenant fields, sign-in controls, MSAL dependency, or auth bridge.
 
 The primary fields target the reference's `/openai/v1/responses` surface. No separate agent/toolbox configuration is needed for the two research tools. Provide an **Advanced service settings** section for:
 
 - An explicit supported Responses resource origin if the project URL does not identify it unambiguously.
-- Speech endpoint and region overrides.
+- A separate Speech endpoint; Speech region is a primary required field.
 - A separate Speech authorization key when shared-resource credentials are insufficient.
 
 Parse URLs with the URL API and validate HTTPS, hostname, and accepted project/resource path forms. Reject embedded credentials, unexpected ports, and query/fragment values rather than forwarding them. Use `URL.origin` for the validated resource origin; do not copy the reference's substring-to-first-`.com` normalization. Persist the accepted Project URL, not an inferred Speech endpoint.
@@ -104,7 +107,7 @@ For `<account>.services.ai.azure.com`, derive the Speech hostname by replacing t
 
 This hostname mapping is a candidate for the same Azure resource, not discovery of an arbitrary Speech project connection. Test its availability and credential access independently. On failure, explain the problem and request an override; do not silently try unrelated endpoints or credentials. Advanced fields are session-only in the initial version.
 
-Test connection validates Responses inference, actual research-tool availability, Speech, avatar capabilities, and local isolation/encoding separately. A successful model request must not make the whole configuration appear valid. Avoid billable model/tool/synthesis tests without explicit confirmation.
+Saving loads the catalog only; it is not proof of inference, research, synthesis, or avatar access. Request explicit billable consent on Generate/Produce and validate the actual requested generation's service responses and media rather than requiring separate billable test jobs. Speech preview remains an optional separately consented action. Local isolation/encoding checks remain automatic, with diagnostics outside Configuration.
 
 ### 4.2 Browser storage rules
 
@@ -129,11 +132,12 @@ Any future Entra scope change must address SPA registration, accepted token audi
 - Retrieve the available voice list from the configured Speech service where its supported browser API permits it.
 - Show friendly name, locale, and voice identifier. Preserve service identifiers in requests.
 - Do not substitute browser operating-system voices for Azure voices without labeling that as a separate, explicitly approved feature.
-- Populate avatar choices from a maintained, documented catalog of supported character/style combinations, filtered by configured region and verified availability. Do not assume an avatar-list API exists.
+- Populate avatar choices automatically on Save from a maintained, documented catalog of supported character/style combinations, filtered by configured region; actual availability is checked during generation. Do not assume an avatar-list API exists.
 - Standard avatars are the initial scope. Custom avatars require a separately supported configuration and permission path.
 - Choose supported defaults when lists load; otherwise show **Select voice** / **Select avatar** and block dependent actions.
 - Handle empty lists, unauthorized access, unsupported regions, and incompatible selections explicitly.
 - Avatar selection is irrelevant for conceptual scenes. Voice selection still controls their narration.
+- Selecting an avatar immediately displays its official preview image in all avatar scene previews without a generated clip, including scenes added later. Do not replace generated/stale video players or conceptual previews. Preview-image failures are explicit and do not disable synthesis.
 
 ## 6. Chat, attachments, and script generation
 
