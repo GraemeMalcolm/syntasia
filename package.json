@@ -8,7 +8,7 @@
     "dev": "npm run assets && vite --host 127.0.0.1",
     "build": "npm run assets && tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "test": "vitest run --exclude tests/browser/**",
+    "test": "vitest run",
     "test:browser": "npm run build && playwright test",
     "check": "tsc --noEmit"
   },

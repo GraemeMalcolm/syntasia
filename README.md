@@ -16,6 +16,8 @@ npm run test:browser
 
 Development runs at `http://127.0.0.1:5173/syntasia/`. `npm run build` produces `dist`. Browser tests build the application, use bounded Vite development/preview servers and installed **Chrome and Edge**, and stop their servers afterward. All external requests in tests are blocked or fulfilled with local fixtures. Tests do **not** invoke billable Azure services.
 
+`npm test` runs Vitest unit/integration tests. The Vite/Vitest configuration excludes `tests/browser/**` without relying on shell glob handling; those Playwright tests run separately with `npm run test:browser`.
+
 `scripts/assets.mjs` copies the pinned FFmpeg cores, worker modules and Caveat font into same-origin `public/vendor` assets. Vite keeps the `/syntasia/` base path. The production-build tests check actual worker/WASM/font loading and MIME types.
 
 ## Capability-driven workflow
