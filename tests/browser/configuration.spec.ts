@@ -47,7 +47,7 @@ test('compact configuration requires region and automatically enables choices wi
   await expect(page.locator('#status')).toHaveText('Configuration ready.');
   expect(requests).toEqual(['GET https://studio.cognitiveservices.azure.com/tts/cognitiveservices/voices/list']);
   const stored = await page.evaluate(() => localStorage.getItem('syntasia.config.v1'));
-  expect(JSON.parse(stored!)).toEqual({ projectUrl: 'https://studio.services.ai.azure.com/api/projects/demo', model: 'fixture-model' });
+  expect(JSON.parse(stored!)).toEqual({ projectUrl: 'https://studio.services.ai.azure.com/api/projects/demo', model: 'fixture-model', speechRegion: 'westus2' });
 });
 test('avatar changes update only their scene preview and conceptual scenes remain white', async ({ page }) => {
   await page.route('**/tts/cognitiveservices/voices/list', route => route.fulfill({ json: voices }));

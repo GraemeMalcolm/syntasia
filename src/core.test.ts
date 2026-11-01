@@ -25,10 +25,10 @@ describe('settings and requests', () => {
       expect(() => resourceOrigin(url)).toThrow();
     }
   });
-  it('persists only project and model, never credentials', () => {
+  it('persists only project, model and Speech region, never credentials', () => {
     const setItem = vi.fn();
-    expect(saveSettings(config, { setItem })).toBe(true);
-    expect(JSON.parse(setItem.mock.calls[0][1])).toEqual({ projectUrl: config.projectUrl, model: 'demo' });
+    expect(saveSettings({ ...config, speechRegion: 'westus2', speechKey: 'fixture-speech-key' }, { setItem })).toBe(true);
+    expect(JSON.parse(setItem.mock.calls[0][1])).toEqual({ projectUrl: config.projectUrl, model: 'demo', speechRegion: 'westus2' });
   });
   it('notifies rather than silently succeeding on storage denial', () => {
     const handler = vi.fn();

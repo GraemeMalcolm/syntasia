@@ -5,6 +5,8 @@ import { FoundryClient, buildRequest, readSse } from './foundry';
 import { readAttachments, validateBudget } from './chat';
 import { availableAvatars, avatarEndpoint, avatarRequest, avatarVideo, validateOutputUrl } from './avatar';
 import { AVATARS } from './types';
+import { animationOutputSchema, generatePlan, validatePlan } from './animation';
+import { publicError } from './errors';
 import { toSsml, validateSsml, spokenText } from './ssml';
 import { parseServiceVtt, validateCues, webVtt } from './transcript';
 import { validateMetadata } from './production';
@@ -24,6 +26,80 @@ function mockFetch(...results: unknown[]) {
   return vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => new Response(JSON.stringify(results.shift()), { headers: { 'Content-Type': 'application/json' } })));
 }
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+describe('structured animation plans', () => {
+  const plan = { version: 1, elements: [{ kind: 'text', x: 100, y: 100, text: 'Hello', size: 50, color: '#17233b', start: 0, end: 1 }] };
+  const response = (text: string) => ({
+    id: 'animation-fixture', status: 'completed',
+    output: [{ type: 'message', content: [{ type: 'output_text', text }] }],
+  });
+  it('sends a strict Responses JSON schema derived from the local validator with Azure-compatible keywords', async () => {
+    mockFetch(response(JSON.stringify(plan)));
+    expect(await generatePlan(config, 'Hello.', 1, options.signal)).toEqual(plan);
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string);
+    expect(body.text.format).toEqual({ type: 'json_schema', name: 'animation_plan', strict: true, schema: animationOutputSchema });
+    expect(body).not.toHaveProperty('response_format');
+    expect(body).not.toHaveProperty('previous_response_id');
+    expect(body).toMatchObject({ tools: [], stream: false, store: true });
+    expect(JSON.parse(body.input)).toEqual({ narration: 'Hello.', durationSeconds: 1 });
+    expect(JSON.stringify(body)).not.toContain(config.key);
+    expect(JSON.stringify(body.text.format.schema)).not.toMatch(/"(?:minimum|maximum|exclusiveMinimum|exclusiveMaximum|minLength|maxLength|minItems|maxItems|oneOf|const|\$schema)"\s*:/);
+    expect(body.text.format.schema).toMatchObject({
+      type: 'object', additionalProperties: false, required: ['version', 'elements'],
+      properties: { version: { enum: [1] }, elements: { type: 'array' } },
+    });
+    const variants = body.text.format.schema.properties.elements.items.anyOf;
+    expect(variants).toHaveLength(4);
+    expect(variants.map((variant: { properties: { kind: { enum: string[] } } }) => variant.properties.kind.enum[0])).toEqual(['line', 'rect', 'circle', 'text']);
+    for (const variant of variants) {
+      expect(variant.additionalProperties).toBe(false);
+      expect(variant.required.sort()).toEqual(Object.keys(variant.properties).sort());
+      expect(variant.properties.color.enum).toEqual(['#17233b', '#5271ff', '#00887a', '#e29a2b']);
+    }
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it.each([
+    [{ ...plan.elements[0], size: '50' }, 'elements[0].size must be number'],
+    [{ ...plan.elements[0], size: 27 }, 'elements[0].size must be at least 28'],
+    [{ ...plan.elements[0], text: 'x'.repeat(101) }, 'elements[0].text must be at most 100'],
+    [{ ...plan.elements[0], color: 'red' }, 'elements[0].color must be one of'],
+    [{ ...plan.elements[0], kind: 'svg' }, 'supported element type'],
+  ])('identifies invalid plan fields and does not make automatic model retries', async (element, message) => {
+    mockFetch(response(JSON.stringify({ version: 1, elements: [element] })));
+    await expect(generatePlan(config, 'Hello.', 1, options.signal)).rejects.toThrow(message);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it('reports extra properties without exposing field names, raw output or narration values', () => {
+    try {
+      validatePlan({ version: 1, elements: [{ ...plan.elements[0], ['authorization: fixture-secret https://private.test']: 'private narration' }] }, 1);
+      throw new Error('Invalid plan was accepted.');
+    } catch (error) {
+      const message = publicError(error);
+      expect(message).toContain('elements[0] has unsupported properties');
+      expect(message).not.toMatch(/fixture-secret|private\.test|private narration|Returned data failed validation/);
+    }
+  });
+  it('distinguishes invalid JSON and malformed API envelopes from invalid plan fields', async () => {
+    mockFetch(response('{"version":1,'));
+    await expect(generatePlan(config, 'Hello.', 1, options.signal)).rejects.toThrow('invalid JSON instead of a declarative plan');
+    expect(fetch).toHaveBeenCalledTimes(1);
+    mockFetch({ output_text: JSON.stringify(plan) });
+    await expect(generatePlan(config, 'Hello.', 1, options.signal)).rejects.toThrow('invalid Responses API data');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it('explains unsupported structured-output requests without silently retrying prompt-only output', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('Unsupported structured output.', { status: 400 })));
+    await expect(generatePlan(config, 'Hello.', 1, options.signal)).rejects.toThrow('model supporting Responses API structured outputs');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it('retains local timeline and geometry checks that the Azure wire schema cannot enforce', async () => {
+    mockFetch(response(JSON.stringify(plan)));
+    await expect(generatePlan(config, 'Hello.', 0.5, options.signal)).rejects.toThrow('timeline');
+    expect(() => validatePlan({ version: 1, elements: [{ kind: 'circle', x: 0, y: 0, radius: 100, color: '#17233b', start: 0, end: 1 }] }, 1)).toThrow('outside the frame');
+    const abort = new AbortController(); abort.abort();
+    await expect(generatePlan(config, 'Hello.', 1, abort.signal)).rejects.toThrow();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
 describe('Foundry research and continuity', () => {
   it('verifies real tool outputs, preserves annotations and advances only validated completed turns', async () => {
     mockFetch(output('one', tools), output('two', tools));
@@ -156,9 +232,20 @@ describe('input, endpoint and media validation', () => {
   });
   it('load/clear denial remains session-only and no advanced fields or secrets are restored', () => {
     const saved = JSON.stringify({ projectUrl: config.projectUrl, model: config.model, key: 'must-not-restore', speechRegion: 'westus2' });
-    expect(loadSettings({ getItem: () => saved })).toEqual({ projectUrl: config.projectUrl, model: config.model });
+    expect(loadSettings({ getItem: () => saved })).toEqual({ projectUrl: config.projectUrl, model: config.model, speechRegion: 'westus2' });
     expect(clearSettings({ removeItem: () => { throw new Error('denied'); } })).toBe(false);
-    expect(loadSettings({ getItem: () => { throw new Error('denied'); } })).toEqual({ projectUrl: '', model: '' });
+    expect(loadSettings({ getItem: () => { throw new Error('denied'); } })).toEqual({ projectUrl: '', model: '', speechRegion: '' });
+  });
+  it('restores legacy settings without a region and normalizes saved region identifiers', () => {
+    const legacy = { projectUrl: config.projectUrl, model: config.model };
+    expect(loadSettings({ getItem: () => JSON.stringify(legacy) })).toEqual({ ...legacy, speechRegion: '' });
+    expect(loadSettings({ getItem: () => JSON.stringify({ ...legacy, speechRegion: ' WestUS2 ' }) })).toEqual({ ...legacy, speechRegion: 'westus2' });
+  });
+  it.each([null, 42, [], 'west us 2', 'https://invalid.test'])('reports invalid saved Speech region %j', speechRegion => {
+    const notify = vi.spyOn(window, 'dispatchEvent');
+    const saved = JSON.stringify({ projectUrl: config.projectUrl, model: config.model, speechRegion });
+    expect(loadSettings({ getItem: () => saved })).toEqual({ projectUrl: '', model: '', speechRegion: '' });
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ type: 'syntasia-storage-error' }));
   });
   it('rejects oversized, binary and invalid UTF-8 attachments without changing existing references', async () => {
     const fake = (name: string, data: number[]) => ({ name, size: data.length, arrayBuffer: async () => new Uint8Array(data).buffer }) as File;

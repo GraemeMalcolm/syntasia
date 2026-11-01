@@ -25,6 +25,11 @@ export function resourceOrigin(value: string, speech = false): string {
   }
   return url.origin;
 }
+function normalizeSpeechRegion(value: string): string {
+  const region = value.trim().toLowerCase();
+  if (region && !/^[a-z0-9]+$/.test(region)) throw new Error('Use an Azure region identifier such as westus2.');
+  return region;
+}
 export function normalizeConfig(value: Partial<Config>): Config {
   const projectUrl = value.projectUrl?.trim() ?? '';
   const projectOrigin = resourceOrigin(projectUrl);
@@ -34,8 +39,7 @@ export function normalizeConfig(value: Partial<Config>): Config {
   const responsesOrigin = value.responsesOrigin ? resourceOrigin(value.responsesOrigin) : projectOrigin;
   const speechOrigin = value.speechOrigin ? resourceOrigin(value.speechOrigin, true)
     : projectOrigin.endsWith('.services.ai.azure.com') ? projectOrigin.replace(/\.services\.ai\.azure\.com$/, '.cognitiveservices.azure.com') : '';
-  const speechRegion = value.speechRegion?.trim().toLowerCase() ?? '';
-  if (speechRegion && !/^[a-z0-9]+$/.test(speechRegion)) throw new Error('Use an Azure region identifier such as westus2.');
+  const speechRegion = normalizeSpeechRegion(value.speechRegion ?? '');
   const speechKey = value.speechKey?.trim() ?? '';
   if (/[\r\n]/.test(speechKey)) throw new Error('Invalid Speech authorization key.');
   return { projectUrl, key, model, responsesOrigin, speechOrigin, speechKey, speechRegion };
@@ -48,20 +52,25 @@ export function endpoints(config: Config): { inference: string; speech: string; 
 }
 export function saveSettings(config: Config, storage?: Pick<Storage, 'setItem'>): boolean {
   try {
-    (storage ?? localStorage).setItem(storageKey, JSON.stringify({ projectUrl: config.projectUrl, model: config.model }));
+    (storage ?? localStorage).setItem(storageKey, JSON.stringify({ projectUrl: config.projectUrl, model: config.model, speechRegion: config.speechRegion }));
     return true;
   } catch { notifyStorageFailure(); return false; }
 }
-export function loadSettings(storage?: Pick<Storage, 'getItem'>): Pick<Config, 'projectUrl' | 'model'> {
+export function loadSettings(storage?: Pick<Storage, 'getItem'>): Pick<Config, 'projectUrl' | 'model' | 'speechRegion'> {
   try {
     const parsed: unknown = JSON.parse((storage ?? localStorage).getItem(storageKey) ?? '{}');
     if (parsed && typeof parsed === 'object' && 'projectUrl' in parsed && 'model' in parsed &&
         typeof parsed.projectUrl === 'string' && typeof parsed.model === 'string') {
       resourceOrigin(parsed.projectUrl);
-      return { projectUrl: parsed.projectUrl, model: parsed.model };
+      let speechRegion = '';
+      if ('speechRegion' in parsed) {
+        if (typeof parsed.speechRegion !== 'string') throw new Error('Invalid saved Speech region.');
+        speechRegion = normalizeSpeechRegion(parsed.speechRegion);
+      }
+      return { projectUrl: parsed.projectUrl, model: parsed.model, speechRegion };
     }
   } catch { notifyStorageFailure(); }
-  return { projectUrl: '', model: '' };
+  return { projectUrl: '', model: '', speechRegion: '' };
 }
 export function clearSettings(storage?: Pick<Storage, 'removeItem'>): boolean {
   try { (storage ?? localStorage).removeItem(storageKey); return true; } catch { notifyStorageFailure(); return false; }

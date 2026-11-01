@@ -28,7 +28,7 @@ test('one empty local scene, unavailable catalogs and explicit video gates', asy
   await expect(page.getByText('No assembled video yet', { exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Download MP4' })).toHaveCount(0);
 });
-test('local scripts survive configuration cancel and only project/model persist', async ({ page }) => {
+test('local scripts survive configuration cancel and only project/model/region persist', async ({ page }) => {
   await page.getByLabel('Script', { exact: true }).fill('My private scene.');
   await configure(page);
   const stored = await page.evaluate(() => Object.fromEntries(Object.keys(localStorage).map(key => [key, localStorage.getItem(key)])));
@@ -36,10 +36,12 @@ test('local scripts survive configuration cancel and only project/model persist'
   expect(JSON.stringify(stored)).not.toContain('local-fixture-key');
   await page.getByRole('button', { name: 'Configuration', exact: true }).click();
   await page.getByLabel('Model name', { exact: true }).fill('discarded');
+  await page.getByLabel('Speech region', { exact: true }).fill('eastus');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page.getByLabel('Script', { exact: true })).toHaveValue('My private scene.');
   await page.getByRole('button', { name: 'Configuration', exact: true }).click();
   await expect(page.getByLabel('Model name', { exact: true })).toHaveValue('fixture-model');
+  await expect(page.getByLabel('Speech region', { exact: true })).toHaveValue('westus2');
   await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: 'Configuration', exact: true })).toBeFocused();
   await page.reload();
@@ -47,6 +49,9 @@ test('local scripts survive configuration cancel and only project/model persist'
   await page.getByRole('button', { name: 'Configuration', exact: true }).click();
   await expect(page.getByLabel('Authorization key', { exact: true })).toHaveValue('');
   await expect(page.getByLabel('Project URL', { exact: true })).toHaveValue('https://studio.services.ai.azure.com/api/projects/demo');
+  await expect(page.getByLabel('Model name', { exact: true })).toHaveValue('fixture-model');
+  await expect(page.getByLabel('Speech region', { exact: true })).toHaveValue('westus2');
+  await expect(page.getByLabel('Speech authorization key', { exact: true })).toHaveValue('');
 });
 test('20 scene limit, order and nonempty deletion confirmation', async ({ page }) => {
   await page.getByLabel('Script', { exact: true }).fill('First scene');

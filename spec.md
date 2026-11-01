@@ -114,12 +114,12 @@ Saving loads the catalog only; it is not proof of inference, research, synthesis
 
 ### 4.2 Browser storage rules
 
-- Persist **only project URL and model name** in namespaced `localStorage`, for example `syntasia.config.v1`.
+- Persist **only project URL, model name and Speech region** in namespaced `localStorage`, for example `syntasia.config.v1`. Restore older saved settings that omit the region with an empty region field.
 - Interpret "browser cache" as persistent browser settings storage, not HTTP caching or a service-worker cache.
 - Keep all authorization keys in memory only. Do not use localStorage, sessionStorage, IndexedDB, cookies, Cache API, URLs, logs, telemetry, generated files, or repository assets for keys.
-- Every fresh page load requires key entry again, even if project URL and model name are restored.
-- Canceling the modal discards unsaved edits. Clear settings removes the two persisted values and clears all active credentials and service settings.
-- Explain that project URL and model name are readable by scripts on the same origin and persist until cleared.
+- Every fresh page load requires key entry again, even if project URL, model name and Speech region are restored.
+- Canceling the modal discards unsaved edits. Clear settings removes all three persisted values and clears all active credentials and service settings.
+- Explain that project URL, model name and Speech region are readable by scripts on the same origin and persist until cleared.
 - If browser storage is unavailable, notify the user that settings will not persist; continue in session-only mode.
 - Scene content, chat, images, attachments, generated media, and selections remain browser-session-only. Warn before leaving with unsaved work; do not promise automatic recovery. Responses conversation storage in Foundry is separate and disclosed in section 6.3.
 - Editing credentials or service settings cancels or invalidates in-flight work associated with the old configuration.
@@ -259,10 +259,12 @@ When **Conceptual animation** is enabled:
 - Retain the selected avatar and any background image in memory, but exclude them from animation generation and output. Restore them if Virtual trainer is selected again.
 - Invalidate previously generated output for that scene.
 
+Invalid animation plans must identify failing fields and permitted types/ranges without displaying raw model output, narration values or unrecognized property names. Distinguish malformed JSON/API envelopes from invalid plan data. Do not automatically retry generation or fall back to prompt-only output; retries require another explicit user action and billable consent.
+
 On Generate:
 
 1. Synthesize narration with the selected Speech voice and collect actual audio duration and word/bookmark timing when available. Otherwise distribute animation events approximately over that duration; missing word timing does not block v1 generation.
-2. Ask the configured Foundry model for a structured SVG-based animation plan grounded in the script and its duration.
+2. Ask the configured Foundry model for a declarative animation plan grounded in the script and measured duration using Responses API `text.format` with `type: "json_schema"` and `strict: true`. Derive the wire schema from the local validator, using required fields, `additionalProperties: false`, enums and nested `anyOf` for distinct element kinds. Omit Azure-unsupported bounds keywords from the wire schema only; enforce all numeric, text, element-count, geometry and timeline limits locally. Animation generation requires a deployment supporting Responses structured outputs.
 3. Use a simple hand-drawn style: sketch-like strokes, stroke-reveal illustrations, handwritten-looking text, limited accent colors, and a white background.
 4. Prefer semantic illustrations and concise written labels rather than rendering the entire narration as text.
 5. Validate a declarative SVG/animation schema and construct the SVG with an application-controlled renderer. Do not execute model-generated JavaScript.
@@ -328,7 +330,7 @@ Rendering must remain cancelable and report memory/resource failures. No arbitra
 
 Use typed state for:
 
-- Persisted project/model settings and separate in-memory secrets.
+- Persisted project/model/region settings and separate in-memory secrets.
 - Capability checks, COI bootstrap/controller state, selected encoding path, voice/avatar catalogs, and active selections.
 - Chat messages, attachments, tool activity, and selected target scene.
 - Scene identity/order, script format, mode, background, input revision, generation job, output media, duration, and cues.
@@ -413,7 +415,7 @@ Required adaptations:
 | ID | Testable outcome |
 | --- | --- |
 | AC-01 | GitHub Pages loads the HTML home page, CSS, compiled JavaScript, workers, and media dependencies under `/syntasia/` without broken asset requests. |
-| AC-02 | Configuration saves only project URL and model name across a reload; keys are absent from persistent stores and must be re-entered. V1 includes no Entra sign-in flow or dependency. |
+| AC-02 | Configuration saves only project URL, model name and Speech region across a reload; keys are absent from persistent stores and must be re-entered. V1 includes no Entra sign-in flow or dependency. |
 | AC-03 | Save, Cancel, Clear settings, storage denial, and per-service connection failures behave as specified without losing unrelated scene edits. |
 | AC-04 | Available Azure voices and supported avatar/styles appear with valid identifiers; missing credentials or unavailable capabilities visibly block dependent actions. |
 | AC-05 | The chat pane expands/collapses without data loss, accepts valid text/Markdown files within limits, rejects invalid inputs, and requires consent before transmission. |

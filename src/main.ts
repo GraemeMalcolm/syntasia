@@ -256,7 +256,7 @@ function openConfig(): void {
   element<HTMLInputElement>('responses-origin').value = config?.responsesOrigin ?? '';
   element<HTMLInputElement>('speech-endpoint').value = config?.speechOrigin ?? '';
   element<HTMLInputElement>('speech-key').value = config?.speechKey ?? '';
-  element<HTMLInputElement>('speech-region').value = config?.speechRegion ?? '';
+  element<HTMLInputElement>('speech-region').value = config?.speechRegion ?? stored.speechRegion;
   element<HTMLInputElement>('authorization-key').type = 'password';
   element('reveal-key').textContent = 'Reveal';
   element('reveal-key').setAttribute('aria-pressed', 'false');
@@ -303,7 +303,7 @@ configForm.addEventListener('submit', event => {
 });
 element('clear-settings').addEventListener('click', () => {
   void (async () => {
-    if (!await confirmAction('Clear settings?', 'Remove persisted project/model and all active credentials and service settings? Scene edits and local files are retained. Stored Foundry conversations are not deleted.', 'Clear settings')) return;
+    if (!await confirmAction('Clear settings?', 'Remove persisted project/model/region and all active credentials and service settings? Scene edits and local files are retained. Stored Foundry conversations are not deleted.', 'Clear settings')) return;
     const cleared = clearSettings();
     resetConfiguration(null);
     closeConfig();

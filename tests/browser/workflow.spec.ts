@@ -43,6 +43,11 @@ async function fixtures(page: Page) {
       requests.push(body);
       expect(JSON.stringify(body)).not.toContain('local-fixture-key');
       const isPlan = body.instructions.includes('declarative animation plan');
+      if (isPlan) {
+        expect(body.text.format).toMatchObject({ type: 'json_schema', name: 'animation_plan', strict: true });
+        expect(body.text.format.schema).toMatchObject({ type: 'object', additionalProperties: false });
+        expect(body.tools).toEqual([]);
+      } else expect(body).not.toHaveProperty('text');
       if (isPlan && holdPlan) {
         holdPlan = false;
         await new Promise<void>(resolve => { releasePlan = resolve; });
@@ -203,4 +208,40 @@ test('production uses individual voices, reuses unchanged clips and sends each s
     inputs: [{ content: expect.stringContaining('name="en-US-JennyNeural"') }],
   });
   await expect(first.getByLabel('Avatar', { exact: true })).toHaveValue('anika');
+});
+test('invalid animation fields show actionable errors and a manual retry can generate valid video', async ({ page }) => {
+  const service = await fixtures(page);
+  let attempts = 0;
+  await page.route('https://studio.services.ai.azure.com/openai/v1/responses', async route => {
+    attempts++;
+    expect(route.request().postDataJSON().text.format).toMatchObject({ type: 'json_schema', name: 'animation_plan', strict: true });
+    const plan = { version: 1, elements: [{
+      kind: 'text', x: 100, y: 100, text: 'Hello', size: attempts === 1 ? '50' : 50,
+      color: '#17233b', start: 0, end: 0.2,
+    }] };
+    await route.fulfill({ json: {
+      id: `plan-${attempts}`, status: 'completed',
+      output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(plan) }] }],
+    } });
+  });
+  await page.goto('./');
+  await expect(page.locator('#browser-status')).toContainText('pipeline fixture: passed');
+  await configure(page);
+  await page.getByLabel('Script', { exact: true }).fill('Hello world.');
+  await page.getByLabel('Conceptual animation', { exact: true }).check();
+  await page.getByRole('button', { name: 'Generate', exact: true }).click();
+  await page.locator('#confirm-accept').click();
+  await expect(page.locator('#status')).toContainText('Animation plan failed validation: elements[0].size must be number');
+  await expect(page.locator('#status')).not.toContainText('Returned data failed validation');
+  await expect(page.locator('#production-status')).toContainText('failed');
+  await expect(page.getByRole('button', { name: 'Generate', exact: true })).toBeEnabled();
+  await expect(page.locator('.media-canvas video')).toHaveCount(0);
+  expect(attempts).toBe(1);
+  expect(service.speechRequests).toHaveLength(1);
+  await page.getByRole('button', { name: 'Generate', exact: true }).click();
+  await page.locator('#confirm-accept').click();
+  await expect(page.locator('.scene-status')).toContainText('ready');
+  await expect(page.locator('.media-canvas video')).toHaveCount(1);
+  expect(attempts).toBe(2);
+  expect(service.speechRequests).toHaveLength(2);
 });

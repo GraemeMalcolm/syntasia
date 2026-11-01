@@ -7,19 +7,26 @@ import { AppError } from './errors';
 import { validateSsml, spokenText } from './ssml';
 export interface Source { title: string; url: string }
 export interface Draft { narration: string; sources: Source[]; editorial: boolean; researched: boolean; researchWarning?: string }
+export interface StructuredOutputFormat {
+  type: 'json_schema';
+  name: string;
+  schema: Record<string, unknown>;
+  strict: true;
+}
 export const researchTools = [
   { type: 'mcp', server_label: 'microsoft_learn', server_description: 'Search and fetch Microsoft Learn documentation and return source links.', server_url: 'https://learn.microsoft.com/api/mcp', require_approval: 'never' },
   { type: 'web_search' },
 ] as const;
 export function toolPolicy(editorial: boolean): typeof researchTools | [] { return editorial ? [] : researchTools; }
 export function buildRequest(config: Config, input: string, instructions: string, options: {
-  editorial?: boolean; stream?: boolean; previous?: string;
+  editorial?: boolean; stream?: boolean; previous?: string; format?: StructuredOutputFormat;
 } = {}) {
   validateBudget(input + instructions);
   return {
     model: config.model, input, instructions, tools: toolPolicy(options.editorial === true),
     tool_choice: 'auto', store: true, stream: options.stream === true,
     ...(options.previous ? { previous_response_id: options.previous } : {}),
+    ...(options.format ? { text: { format: options.format } } : {}),
   };
 }
 export function parseJsonText(text: string): unknown {
@@ -123,17 +130,27 @@ export class FoundryClient {
   constructor(config: Config) { this.config = normalizeConfig(config); }
   reset(): void { this.previous = undefined; this.epoch++; }
   private async run(input: string, instructions: string, signal: AbortSignal, editorial: boolean, stream: boolean,
-    onDelta?: (text: string) => void, previous = this.previous) {
+    onDelta?: (text: string) => void, previous = this.previous, format?: StructuredOutputFormat) {
     const response = await request(`${this.config.responsesOrigin}/openai/v1/responses`, {
       method: 'POST', signal, headers: { 'Content-Type': 'application/json', 'api-key': this.config.key },
-      body: JSON.stringify(buildRequest(this.config, input, instructions, { editorial, stream, previous })),
+      body: JSON.stringify(buildRequest(this.config, input, instructions, { editorial, stream, previous, format })),
     });
     return extract(stream ? await readSse(response, signal, onDelta) : responseSchema.parse(await response.json()));
   }
-  async complete(input: string, instructions: string, signal: AbortSignal): Promise<{ text: string }> {
-    const result = await this.run(input, instructions, signal, true, false, undefined, undefined);
-    signal.throwIfAborted();
-    return { text: result.text };
+  async complete(input: string, instructions: string, signal: AbortSignal, format?: StructuredOutputFormat): Promise<{ text: string }> {
+    try {
+      const result = await this.run(input, instructions, signal, true, false, undefined, undefined, format);
+      signal.throwIfAborted();
+      return { text: result.text };
+    } catch (error) {
+      if (format && (error instanceof z.ZodError || error instanceof SyntaxError)) {
+        throw new AppError('model', 'Foundry returned invalid Responses API data for structured output. Check model/API compatibility; nothing was rendered.');
+      }
+      if (format && error instanceof AppError && error.error.code === 'synthesis') {
+        throw new AppError(error.error.code, `${error.error.message} Animation generation requires a model supporting Responses API structured outputs (JSON Schema).`, error.error.details, error.retryAfterMs);
+      }
+      throw error;
+    }
   }
   async generate(options: {
     prompt: string; script: string; ssml: boolean; editorial: boolean; microsoft: boolean;
